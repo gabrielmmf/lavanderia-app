@@ -75,7 +75,7 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
             <section>
               <h3 className="font-semibold mb-2">⏱️ Limite de tempo</h3>
               <p className="text-muted-foreground">
-                Cada agendamento pode ter no máximo <strong>8 horas</strong> de uso. Por exemplo: das 8h às 20h.
+                Cada agendamento pode ter no máximo <strong>8 horas</strong> de uso. Por exemplo: das 8h às 16h.
               </p>
             </section>
 
