@@ -6,34 +6,34 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { DateTimePicker } from "./DateTimePicker"
 
 function getDefaultStart(): Date {
-  const d = new Date()
-  const now = d.getTime()
-  d.setHours(8, 0, 0, 0)
-  if (d.getTime() <= now) {
-    d.setTime(now)
-    const m = d.getMinutes()
-    d.setMinutes(m <= 30 ? 30 : 60, 0, 0)
-  }
-  return d
+    const d = new Date()
+    const now = d.getTime()
+    d.setHours(8, 0, 0, 0)
+    if (d.getTime() <= now) {
+        d.setTime(now)
+        const m = d.getMinutes()
+        d.setMinutes(m <= 30 ? 30 : 60, 0, 0)
+    }
+    return d
 }
 
 function getDefaultEnd(): Date {
-  const start = getDefaultStart()
-  const d = new Date(start)
-  d.setMinutes(d.getMinutes() + 120, 0, 0)
-  return d
+    const start = getDefaultStart()
+    const d = new Date(start)
+    d.setMinutes(d.getMinutes() + 120, 0, 0)
+    return d
 }
 
 const MACHINES = [1, 2, 3] as const
@@ -59,7 +59,7 @@ export function BookingForm({
         endTime: string
     } | null>(null)
 
-    const MAX_HOURS = 12
+    const MAX_HOURS = 8
 
     useEffect(() => {
         if (end <= start) {

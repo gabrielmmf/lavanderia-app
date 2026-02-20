@@ -11,7 +11,7 @@ export async function deleteExpiredBookings() {
   return result.count
 }
 
-const MAX_BOOKING_HOURS = 12
+const MAX_BOOKING_HOURS = 8
 const MAX_APARTMENT_BOOKINGS = 2
 
 export class BookingLimitError extends Error {
