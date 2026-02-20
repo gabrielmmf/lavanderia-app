@@ -39,8 +39,6 @@ export default function Home() {
           onCreated={() => setRefresh(prev => prev + 1)}
         />
         <BookingList refresh={refresh} currentApartment={apartment.trim()} />
-
-        <RulesDialog />
       </div>
     </main>
   )
