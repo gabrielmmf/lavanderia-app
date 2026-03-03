@@ -2,10 +2,11 @@ import { prisma } from "./prisma"
 
 /** Remove agendamentos cujo horário de fim já passou */
 export async function deleteExpiredBookings() {
-  const now = new Date()
+  const now = new Date();
+  const threshold = new Date(now.getTime() - 24 * 60 * 60 * 1000)
   const result = await prisma.booking.deleteMany({
     where: {
-      endTime: { lt: now }
+      endTime: { lt: threshold }
     }
   })
   return result.count
