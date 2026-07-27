@@ -16,6 +16,8 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { DateTimePicker } from "./DateTimePicker"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
 
 function getDefaultStart(): Date {
     const d = new Date()
@@ -38,6 +40,17 @@ function getDefaultEnd(): Date {
 
 const MACHINES = [1, 2, 3] as const
 
+const DURATION_OPTIONS = [
+    { label: "30 min", value: 30 },
+    { label: "1 hora", value: 60 },
+    { label: "1h 30m", value: 90 },
+    { label: "2 horas", value: 120 },
+    { label: "3 horas", value: 180 },
+    { label: "4 horas", value: 240 },
+    { label: "6 horas", value: 360 },
+    { label: "8 horas", value: 480 },
+]
+
 export function BookingForm({
     apartment,
     onApartmentChange,
@@ -49,7 +62,10 @@ export function BookingForm({
 }) {
     const [machine, setMachine] = useState<number>(1)
     const [start, setStart] = useState<Date>(getDefaultStart)
-    const [end, setEnd] = useState<Date>(getDefaultEnd)
+    const [duration, setDuration] = useState<number>(120) // Default 2 hours
+
+    const end = new Date(start)
+    end.setMinutes(end.getMinutes() + duration)
     const [loading, setLoading] = useState(false)
     const [showReplaceConfirm, setShowReplaceConfirm] = useState(false)
     const [pendingData, setPendingData] = useState<{
@@ -58,20 +74,6 @@ export function BookingForm({
         startTime: string
         endTime: string
     } | null>(null)
-
-    const MAX_HOURS = 8
-
-    useEffect(() => {
-        if (end <= start) {
-            const next = new Date(start)
-            next.setMinutes(next.getMinutes() + 30)
-            setEnd(next)
-        } else {
-            const maxEnd = new Date(start)
-            maxEnd.setHours(maxEnd.getHours() + MAX_HOURS, 0, 0, 0)
-            if (end > maxEnd) setEnd(maxEnd)
-        }
-    }, [start, end])
 
     async function doSubmit(payload: {
         apartmentNumber: string
@@ -105,9 +107,6 @@ export function BookingForm({
 
         setPendingData(null)
         setShowReplaceConfirm(false)
-        setMachine(1)
-        setStart(getDefaultStart())
-        setEnd(getDefaultEnd())
         onCreated()
     }
 
@@ -177,13 +176,23 @@ export function BookingForm({
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Fim</Label>
-                        <DateTimePicker
-                            value={end}
-                            onChange={setEnd}
-                            min={start}
-                            placeholder="Selecione data e hora de fim"
-                        />
+                        <Label>Duração</Label>
+                        <select
+                            value={duration}
+                            onChange={e => setDuration(Number(e.target.value))}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                            {DURATION_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Término previsto</Label>
+                        <div className="text-sm p-2 bg-muted rounded-md border">
+                            {format(end, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                        </div>
                     </div>
 
                     <Button className="w-full" disabled={loading}>
