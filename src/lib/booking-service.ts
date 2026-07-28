@@ -1,26 +1,40 @@
 import { prisma } from "./prisma"
+import { formatDateTimeBR } from "./date-utils"
 import {
   BookingLimitError,
+  BookingLockedError,
   BookingNotFoundError,
   BookingValidationError,
+  BookingWeeklyLimitError,
+  BOOKING_RETENTION_DAYS,
+  BOOKING_WINDOW_DAYS,
+  EFFECTUATION_LEAD_LABEL,
   MAX_APARTMENT_BOOKINGS,
+  MAX_APARTMENT_BOOKINGS_PER_WINDOW,
   MAX_BOOKING_HOURS,
+  isBookingEffectuated,
   isValidMachineNumber,
 } from "./booking-rules"
 
 export {
   BookingLimitError,
+  BookingLockedError,
   BookingNotFoundError,
   BookingValidationError,
+  BookingWeeklyLimitError,
   MACHINE_NUMBERS,
   MAX_APARTMENT_BOOKINGS,
+  MAX_APARTMENT_BOOKINGS_PER_WINDOW,
   MAX_BOOKING_HOURS,
 } from "./booking-rules"
 
 /** Janela de retenção de agendamentos já encerrados, em milissegundos. */
-const RETENTION_MS = 24 * 60 * 60 * 1000
+const RETENTION_MS = BOOKING_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
-/** Remove agendamentos encerrados há mais de 24 horas. */
+/** Janela do limite semanal, em milissegundos. */
+const WINDOW_MS = BOOKING_WINDOW_DAYS * 24 * 60 * 60 * 1000
+
+/** Remove agendamentos encerrados há mais de `BOOKING_RETENTION_DAYS` dias. */
 export async function deleteExpiredBookings() {
   const threshold = new Date(Date.now() - RETENTION_MS)
   const result = await prisma.booking.deleteMany({
@@ -73,6 +87,8 @@ export function validateBookingInput(
 export async function createBooking(data: CreateBookingInput) {
   validateBookingInput(data)
 
+  const now = new Date()
+
   const conflict = await prisma.booking.findFirst({
     where: {
       machineNumber: data.machineNumber,
@@ -87,17 +103,50 @@ export async function createBooking(data: CreateBookingInput) {
     )
   }
 
+  const windowStart = new Date(now.getTime() - WINDOW_MS)
+  const weeklyCount = await prisma.booking.count({
+    where: {
+      apartmentNumber: data.apartmentNumber,
+      startTime: { gte: windowStart },
+    },
+  })
+
+  if (weeklyCount >= MAX_APARTMENT_BOOKINGS_PER_WINDOW) {
+    const oldestInWindow = await prisma.booking.findFirst({
+      where: {
+        apartmentNumber: data.apartmentNumber,
+        startTime: { gte: windowStart },
+      },
+      orderBy: { startTime: "asc" },
+    })
+    const availableAgainAt = oldestInWindow
+      ? new Date(oldestInWindow.startTime.getTime() + WINDOW_MS)
+      : undefined
+
+    throw new BookingWeeklyLimitError(
+      `O apartamento ${data.apartmentNumber} já tem ${weeklyCount} agendamentos nos últimos ${BOOKING_WINDOW_DAYS} dias — o limite é ${MAX_APARTMENT_BOOKINGS_PER_WINDOW}.` +
+        (availableAgainAt
+          ? ` Você poderá agendar novamente a partir de ${formatDateTimeBR(availableAgainAt)}.`
+          : "")
+    )
+  }
+
   const count = await prisma.booking.count({
-    where: { apartmentNumber: data.apartmentNumber },
+    where: { apartmentNumber: data.apartmentNumber, endTime: { gt: now } },
   })
 
   if (count >= MAX_APARTMENT_BOOKINGS) {
     if (data.replaceOldest) {
       const oldest = await prisma.booking.findFirst({
-        where: { apartmentNumber: data.apartmentNumber },
+        where: { apartmentNumber: data.apartmentNumber, endTime: { gt: now } },
         orderBy: { startTime: "asc" },
       })
       if (oldest) {
+        if (isBookingEffectuated(oldest.startTime, now)) {
+          throw new BookingLockedError(
+            `O agendamento mais antigo do apartamento ${data.apartmentNumber} já foi efetivado e não pode ser substituído automaticamente. Aguarde ele terminar ou escolha apagar outro agendamento antes de tentar de novo.`
+          )
+        }
         await prisma.booking.delete({ where: { id: oldest.id } })
       }
     } else {
@@ -149,6 +198,11 @@ export async function deleteBooking(id: string) {
   const booking = await prisma.booking.findUnique({ where: { id } })
   if (!booking) {
     throw new BookingNotFoundError()
+  }
+  if (isBookingEffectuated(booking.startTime)) {
+    throw new BookingLockedError(
+      `Este agendamento já foi efetivado — começa em menos de ${EFFECTUATION_LEAD_LABEL} (ou já começou) — e não pode mais ser apagado.`
+    )
   }
   return prisma.booking.delete({ where: { id } })
 }

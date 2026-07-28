@@ -10,6 +10,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import {
+  BOOKING_WINDOW_DAYS,
+  EFFECTUATION_LEAD_LABEL,
+  MAX_APARTMENT_BOOKINGS,
+  MAX_APARTMENT_BOOKINGS_PER_WINDOW,
+} from "@/lib/booking-rules"
 
 const SESSION_KEY = "lavanderia-rules-seen"
 
@@ -109,7 +115,21 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
             <section>
               <h3 className="font-semibold mb-2">🏠 Limite por apartamento</h3>
               <p className="text-muted-foreground">
-                Cada apartamento pode ter até <strong>2 agendamentos</strong> ao mesmo tempo. Se você tentar agendar um terceiro, o sistema pedirá sua confirmação para <strong>remover o agendamento mais antigo</strong> e criar o novo.
+                Cada apartamento pode ter até <strong>{MAX_APARTMENT_BOOKINGS} agendamentos</strong> ao mesmo tempo. Se você tentar agendar mais um além do limite, o sistema pedirá sua confirmação para <strong>remover o agendamento mais antigo</strong> e criar o novo.
+              </p>
+            </section>
+
+            <section>
+              <h3 className="font-semibold mb-2">📆 Limite semanal</h3>
+              <p className="text-muted-foreground">
+                Cada apartamento pode iniciar no máximo <strong>{MAX_APARTMENT_BOOKINGS_PER_WINDOW} agendamentos a cada {BOOKING_WINDOW_DAYS} dias</strong>, para garantir que todo mundo consiga usar a lavanderia. Se você atingir o limite, o sistema informa a partir de quando o agendamento mais antigo sai da contagem e libera espaço para um novo.
+              </p>
+            </section>
+
+            <section>
+              <h3 className="font-semibold mb-2">🔒 Agendamentos efetivados</h3>
+              <p className="text-muted-foreground">
+                A partir de <strong>{EFFECTUATION_LEAD_LABEL}</strong> antes do início — e enquanto estiver em andamento ou já tiver terminado — um agendamento é considerado <strong>efetivado</strong> e não pode mais ser apagado. Isso evita que alguém apague um agendamento já em uso só para conseguir marcar outro em seguida.
               </p>
             </section>
 

@@ -18,7 +18,7 @@ import {
 import { DateTimePicker } from "./DateTimePicker"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { MACHINE_NUMBERS } from "@/lib/booking-rules"
+import { MACHINE_NUMBERS, MAX_APARTMENT_BOOKINGS } from "@/lib/booking-rules"
 import {
     DEFAULT_DURATION_MINUTES,
     DURATION_OPTIONS,
@@ -182,7 +182,7 @@ export function BookingForm({
                         <AlertDialogHeader>
                             <AlertDialogTitle>Limite de agendamentos</AlertDialogTitle>
                             <AlertDialogDescription>
-                                O apartamento {apartment} já possui 2 agendamentos. O agendamento mais antigo será removido para permitir este novo. Deseja continuar?
+                                O apartamento {apartment} já possui {MAX_APARTMENT_BOOKINGS} agendamentos. O agendamento mais antigo será removido para permitir este novo. Deseja continuar?
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>

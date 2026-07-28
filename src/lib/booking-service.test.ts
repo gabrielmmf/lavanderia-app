@@ -5,8 +5,10 @@ vi.mock("./prisma", () => ({ prisma: prismaMock }))
 
 const {
   BookingLimitError,
+  BookingLockedError,
   BookingNotFoundError,
   BookingValidationError,
+  BookingWeeklyLimitError,
   createBooking,
   deleteBooking,
   deleteExpiredBookings,
@@ -14,7 +16,11 @@ const {
   validateBookingInput,
 } = await import("./booking-service")
 
+const { BOOKING_RETENTION_DAYS, BOOKING_WINDOW_DAYS, MAX_APARTMENT_BOOKINGS_PER_WINDOW } =
+  await import("./booking-rules")
+
 const NOW = new Date(2026, 6, 27, 10, 0)
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function input(overrides: Partial<Parameters<typeof createBooking>[0]> = {}) {
   return {
@@ -126,11 +132,56 @@ describe("createBooking", () => {
     prismaMock.booking.count.mockResolvedValue(2)
     prismaMock.booking.findFirst
       .mockResolvedValueOnce(null) // sem conflito de horário
-      .mockResolvedValueOnce({ id: "antigo" }) // o mais antigo do apartamento
+      .mockResolvedValueOnce({ id: "antigo", startTime: new Date(NOW.getTime() + 2 * DAY_MS) }) // o mais antigo, ainda longe do início
     prismaMock.booking.create.mockResolvedValue({ id: "novo" })
 
     await expect(createBooking(input({ replaceOldest: true }))).resolves.toEqual({ id: "novo" })
     expect(prismaMock.booking.delete).toHaveBeenCalledWith({ where: { id: "antigo" } })
+  })
+
+  it("recusa substituir o mais antigo quando ele já foi efetivado", async () => {
+    prismaMock.booking.count.mockResolvedValue(2)
+    prismaMock.booking.findFirst
+      .mockResolvedValueOnce(null) // sem conflito de horário
+      .mockResolvedValueOnce({ id: "antigo", startTime: new Date(NOW.getTime() + 30 * 60 * 1000) }) // começa em 30min
+
+    await expect(createBooking(input({ replaceOldest: true }))).rejects.toBeInstanceOf(
+      BookingLockedError
+    )
+    expect(prismaMock.booking.delete).not.toHaveBeenCalled()
+    expect(prismaMock.booking.create).not.toHaveBeenCalled()
+  })
+
+  it("lança BookingWeeklyLimitError ao atingir o limite semanal", async () => {
+    prismaMock.booking.count.mockResolvedValueOnce(MAX_APARTMENT_BOOKINGS_PER_WINDOW)
+    prismaMock.booking.findFirst
+      .mockResolvedValueOnce(null) // sem conflito de horário
+      .mockResolvedValueOnce({
+        id: "mais-antigo-da-semana",
+        startTime: new Date(2026, 6, 22, 9, 0),
+      }) // mais antigo dentro da janela semanal
+
+    await expect(createBooking(input())).rejects.toBeInstanceOf(BookingWeeklyLimitError)
+    expect(prismaMock.booking.create).not.toHaveBeenCalled()
+  })
+
+  it("consulta o limite semanal pela janela de BOOKING_WINDOW_DAYS dias terminando agora", async () => {
+    prismaMock.booking.create.mockResolvedValue({ id: "b1" })
+
+    await createBooking(input())
+
+    const where = prismaMock.booking.count.mock.calls[0][0].where
+    expect(where.apartmentNumber).toBe("101")
+    expect(where.startTime.gte).toEqual(new Date(NOW.getTime() - BOOKING_WINDOW_DAYS * DAY_MS))
+  })
+
+  it("não conta agendamentos já encerrados para o limite de simultâneos", async () => {
+    prismaMock.booking.create.mockResolvedValue({ id: "b1" })
+
+    await createBooking(input())
+
+    const concurrentWhere = prismaMock.booking.count.mock.calls[1][0].where
+    expect(concurrentWhere).toEqual({ apartmentNumber: "101", endTime: { gt: NOW } })
   })
 
   it("não persiste nada quando a validação falha", async () => {
@@ -141,8 +192,11 @@ describe("createBooking", () => {
 })
 
 describe("deleteBooking", () => {
-  it("remove quando o agendamento existe", async () => {
-    prismaMock.booking.findUnique.mockResolvedValue({ id: "b1" })
+  it("remove quando o agendamento existe e ainda não foi efetivado", async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({
+      id: "b1",
+      startTime: new Date(NOW.getTime() + 2 * DAY_MS),
+    })
     prismaMock.booking.delete.mockResolvedValue({ id: "b1" })
 
     await expect(deleteBooking("b1")).resolves.toEqual({ id: "b1" })
@@ -154,16 +208,36 @@ describe("deleteBooking", () => {
     await expect(deleteBooking("nope")).rejects.toBeInstanceOf(BookingNotFoundError)
     expect(prismaMock.booking.delete).not.toHaveBeenCalled()
   })
+
+  it("lança BookingLockedError quando o agendamento já foi efetivado", async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({
+      id: "b1",
+      startTime: new Date(NOW.getTime() + 30 * 60 * 1000), // começa em 30min
+    })
+
+    await expect(deleteBooking("b1")).rejects.toBeInstanceOf(BookingLockedError)
+    expect(prismaMock.booking.delete).not.toHaveBeenCalled()
+  })
+
+  it("lança BookingLockedError para agendamento já em andamento ou concluído", async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({
+      id: "b1",
+      startTime: new Date(NOW.getTime() - 60 * 60 * 1000), // começou há 1h
+    })
+
+    await expect(deleteBooking("b1")).rejects.toBeInstanceOf(BookingLockedError)
+    expect(prismaMock.booking.delete).not.toHaveBeenCalled()
+  })
 })
 
 describe("deleteExpiredBookings", () => {
-  it("remove apenas o que terminou há mais de 24h", async () => {
+  it("remove apenas o que terminou há mais que a janela de retenção", async () => {
     prismaMock.booking.deleteMany.mockResolvedValue({ count: 3 })
 
     await expect(deleteExpiredBookings()).resolves.toBe(3)
 
     const where = prismaMock.booking.deleteMany.mock.calls[0][0].where
-    expect(where.endTime.lt).toEqual(new Date(NOW.getTime() - 24 * 60 * 60 * 1000))
+    expect(where.endTime.lt).toEqual(new Date(NOW.getTime() - BOOKING_RETENTION_DAYS * DAY_MS))
   })
 })
 

@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatTimeBR, formatDateBR } from "@/lib/date-utils"
-import { Trash2 } from "lucide-react"
+import { Trash2, Lock } from "lucide-react"
+import { EFFECTUATION_LEAD_LABEL, isBookingEffectuated } from "@/lib/booking-rules"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -33,7 +34,10 @@ export function BookingCard({ booking, compact, onDelete }: BookingCardProps) {
         setShowConfirm(false)
     }
 
-    const canDelete = booking.id && onDelete
+    const effectuated = isBookingEffectuated(new Date(booking.startTime))
+    const canDelete = booking.id && onDelete && !effectuated
+    const locked = booking.id && onDelete && effectuated
+    const lockedLabel = `Agendamento já efetivado — começa em menos de ${EFFECTUATION_LEAD_LABEL} (ou já começou) — e não pode mais ser apagado`
 
     if (compact) {
         return (
@@ -52,6 +56,15 @@ export function BookingCard({ booking, compact, onDelete }: BookingCardProps) {
                         >
                             <Trash2 className="h-4 w-4" />
                         </button>
+                    )}
+                    {locked && (
+                        <span
+                            className="p-2 -m-1 min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground shrink-0"
+                            title={lockedLabel}
+                            aria-label={lockedLabel}
+                        >
+                            <Lock className="h-4 w-4" />
+                        </span>
                     )}
                 </div>
                 {canDelete && (
@@ -113,6 +126,15 @@ export function BookingCard({ booking, compact, onDelete }: BookingCardProps) {
                             </AlertDialogContent>
                         </AlertDialog>
                     </>
+                )}
+                {locked && (
+                    <span
+                        className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground shrink-0"
+                        title={lockedLabel}
+                        aria-label={lockedLabel}
+                    >
+                        <Lock className="h-4 w-4" />
+                    </span>
                 )}
             </CardContent>
         </Card>

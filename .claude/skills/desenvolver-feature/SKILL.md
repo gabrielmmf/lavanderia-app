@@ -31,11 +31,68 @@ Responda para si mesmo, antes de editar:
   `migracao-banco` antes de mexer no `schema.prisma`.
 - **Muda regra de negócio?** (limites, conflito de horário, validação) →
   o número vai em `src/lib/booking-rules.ts`, a regra em
-  `src/lib/booking-service.ts`, e precisa de teste.
+  `src/lib/booking-service.ts`, e precisa de teste. Toda regra nova ou
+  alterada segue o checklist da seção 1.1.
 - **É só interface?** → `src/components/booking/`. Componentes de
   `src/components/ui/` são do shadcn e não se editam à mão.
 - **Mexe em notificações?** → `src/lib/notification-service.ts` e
   `src/lib/notifications-config.ts`.
+
+## 1.1 Toda regra de negócio nova (limite, prazo, contagem)
+
+Regra de negócio aqui significa qualquer número que muda o que o morador pode
+ou não fazer: limite de agendamentos, antecedência mínima, duração máxima,
+janela de retenção etc. Ao adicionar ou alterar uma:
+
+1. **O número mora em `src/lib/booking-rules.ts`, com um comentário
+   explicando o *porquê*.** Nunca espalhe o literal por outros arquivos —
+   quem for mudar o valor depois deve precisar editar um único lugar.
+2. **Teste o número em `booking-rules.test.ts`** (valor e comportamento no
+   limite exato) **e o efeito dele em `booking-service.test.ts`** (o que
+   acontece quando a regra é violada).
+3. **Atualize `RulesDialog.tsx`** (`src/components/booking/RulesDialog.tsx`,
+   o "componente de regras" que o morador abre pelo ícone de informação) —
+   toda regra que afeta o morador tem que estar documentada ali, na mesma
+   seção de "Como funciona a Lavanderia". Importe a constante de
+   `booking-rules.ts` e interpole no texto — não escreva o número de novo.
+   Uma regra sem entrada aqui é uma regra que o morador só descobre
+   apanhando.
+4. **Mensagens de erro devem ser específicas.** Diga o que a pessoa fez, qual
+   é o limite, e — quando der para calcular — quando ela poderá tentar de
+   novo. "Limite atingido" sozinho obriga o morador a adivinhar; "você já tem
+   4 agendamentos nos últimos 7 dias, poderá agendar de novo a partir de
+   quinta-feira às 14h" não.
+5. **Atualize a tabela de regras de negócio no `CLAUDE.md`** se a regra for
+   grande o suficiente para estar listada lá.
+
+### Antes de implementar um limite anti-abuso, verifique a premissa de dados
+
+Um limite baseado em "contar registros dos últimos N dias" só funciona se os
+registros de fato sobrevivem N dias no banco. Neste app,
+`deleteExpiredBookings` apaga agendamentos um tempo depois de terminarem — se
+esse prazo for menor que a janela do novo limite, o limite vira, na prática,
+outra coisa (geralmente um teto de quantos registros o apartamento pode ter
+"em mãos" ao mesmo tempo, não um limite de uso ao longo do tempo). Isso já
+aconteceu ao desenhar o limite semanal de agendamentos: foi preciso alinhar
+`BOOKING_RETENTION_DAYS` a `BOOKING_WINDOW_DAYS` para o limite ser real.
+
+Antes de implementar uma regra desse tipo:
+
+- Desenhe no papel um cenário de abuso ao longo de vários dias, não só uma
+  chamada isolada da API. Pergunte "o que impede a pessoa de repetir isso
+  todo santo dia?", não só "o que impede essa chamada específica?".
+- Se a correção depender de mudar uma regra de negócio já documentada no
+  `CLAUDE.md` (como a janela de retenção), **pergunte ao usuário antes** — a
+  seção "Regras de negócio" do `CLAUDE.md` existe justamente para isso.
+- Prefira a solução mais simples que resolve o problema de verdade (mudar
+  uma constante) a uma mais robusta, porém mais pesada (tabela nova,
+  migration) — mas ofereça a robusta como alternativa se a simples tiver
+  efeitos colaterais que o usuário talvez não queira (aqui, o calendário
+  passou a reter e mostrar agendamentos por mais tempo).
+- Nunca implemente sua primeira ideia sem avaliar se ela resolve o problema
+  de abuso relatado ponta a ponta. Se encontrar uma solução melhor que a
+  pedida, proponha — quem pede a funcionalidade nem sempre enxerga a
+  interação com uma regra já existente (aqui, a limpeza automática).
 
 ## 2. Onde colocar cada coisa
 

@@ -66,8 +66,19 @@ prisma/
 - Máximo de **8 horas** por agendamento.
 - Máximo de **2 agendamentos simultâneos** por apartamento; ao tentar o terceiro,
   o app oferece substituir o mais antigo.
+- Máximo de **4 agendamentos por apartamento a cada 7 dias**
+  (`BOOKING_WINDOW_DAYS` / `MAX_APARTMENT_BOOKINGS_PER_WINDOW`), para coibir
+  uso diário abusivo das máquinas.
+- Um agendamento é considerado **efetivado** a partir de **1 hora antes do
+  início** (`EFFECTUATION_LEAD_MINUTES`) — e enquanto estiver em andamento ou
+  já tiver terminado. A partir daí o morador não pode mais apagá-lo: isso
+  fecha a brecha de apagar um agendamento em uso só para marcar outro em
+  seguida.
 - **3 máquinas** (1, 2, 3); a mesma máquina não pode ter horários sobrepostos.
-- Agendamentos encerrados há mais de **24 horas** são removidos automaticamente.
+- Agendamentos encerrados há mais de **7 dias** (`BOOKING_RETENTION_DAYS`) são
+  removidos automaticamente. Esse prazo é igual ao da janela do limite
+  semanal de propósito: se a limpeza apagasse os registros antes, o limite
+  semanal deixaria de enxergar o uso passado.
 - Notificações são enviadas **15 minutos** antes do início e do término
   (`NOTIFICATION_LEAD_MINUTES`).
 
