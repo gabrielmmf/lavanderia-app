@@ -71,6 +71,7 @@ por um PAT, o loop volta.
 | falha em `Criar/reutilizar branch no Neon`      | `NEON_API_KEY` ou `NEON_PROJECT_ID` ausente/errado |
 | falha em `Aplicar migrations na branch do PR`   | a migration está quebrada — é o CI funcionando |
 | falha em `vercel pull`                          | `VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` |
+| `Invalid vercel.json - should NOT have additional property` | Campo fora do schema da Vercel. Não existe comentário em `vercel.json` (nem chaves `"//"`); documente em `docs/DEPLOY.md`. |
 | smoke test: "bloqueado pelo Deployment Protection" | falta `VERCEL_AUTOMATION_BYPASS_SECRET`     |
 | falha no smoke test                             | build ok, app não responde → `npx vercel logs` |
 | o job nem começou                               | PR vindo de fork (sem secrets) — é esperado    |

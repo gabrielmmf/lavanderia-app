@@ -39,6 +39,19 @@ preview-cleanup.yml — apaga a branch do Neon
 Cada passo depende do anterior: se as migrations falharem, **nada é deployado** e
 produção segue na versão anterior.
 
+## O `vercel.json`
+
+A Vercel valida esse arquivo contra um schema **estrito**: qualquer propriedade
+fora do vocabulário dela derruba o deploy. Em particular, não dá para usar
+chaves `"//"` como pseudo-comentário — JSON não tem comentários, e a validação
+recusa. Por isso as decisões ficam documentadas aqui:
+
+| Campo | Por quê |
+| ----- | ------- |
+| `regions: ["gru1"]` | São Paulo, junto do Neon em `sa-east-1`. Sem isso as funções sobem em `iad1` e cada query cruza o continente. |
+| `functions.…/cron/notifications.maxDuration: 60` | O ciclo de push pode enfileirar vários envios; 60s é o teto do plano Hobby. |
+| `git.deploymentEnabled: false` | Desliga o auto-deploy por push — ver a seção abaixo. |
+
 ## Por que o GitHub Actions faz o deploy, e não a Vercel
 
 `vercel.json` tem `git.deploymentEnabled: false`. Com o auto-deploy da Vercel
