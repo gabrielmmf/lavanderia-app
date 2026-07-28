@@ -3,6 +3,13 @@ import { prismaMock, resetPrismaMock } from "@/lib/test-utils/prisma-mock"
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }))
 
+// Mockado para manter o teste sobre a rota, não sobre o web-push: aqui só
+// interessa que o resultado da checagem chegue à resposta.
+const ensureVapidConfigured = vi.fn()
+vi.mock("@/lib/notification-service", () => ({
+  ensureVapidConfigured: () => ensureVapidConfigured(),
+}))
+
 const { GET } = await import("./route")
 
 function request(authorization?: string) {
@@ -23,6 +30,7 @@ beforeEach(() => {
     "postgresql://u:p@ep-soft-wildflower-acn1xtb4-pooler.sa-east-1.aws.neon.tech/neondb"
   prismaMock.pushSubscription.count.mockResolvedValue(0)
   prismaMock.booking.count.mockResolvedValue(0)
+  ensureVapidConfigured.mockReset().mockReturnValue(true)
 })
 
 afterEach(() => {
@@ -64,6 +72,30 @@ describe("GET /api/health", () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: false,
       database: { reachable: false, schemaUpToDate: false },
+    })
+  })
+
+  it("informa que as notificações estão configuradas", async () => {
+    const body = await (await GET(request())).json()
+
+    expect(body.notifications).toEqual({ configured: true })
+  })
+
+  /**
+   * O contrário do que acontecia em produção: a chave VAPID inválida não
+   * aparecia em lugar nenhum, e o problema só era percebido por um morador
+   * clicando no botão. Sem VAPID o app segue íntegro (`ok: true`) — o estado
+   * é informativo, não um motivo para reprovar o deploy.
+   */
+  it("reporta notificações desligadas sem derrubar o health check", async () => {
+    ensureVapidConfigured.mockReturnValue(false)
+
+    const response = await GET(request())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      notifications: { configured: false },
     })
   })
 

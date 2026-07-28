@@ -1,8 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
+import { normalizeVapidPublicKey } from "./notifications-config"
 
-const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""
+// Validada uma vez, no formato — não basta existir. O valor é inlinado no
+// bundle em tempo de build, então uma chave inválida é inválida para todo mundo
+// até o próximo deploy; não adianta a UI sugerir "tente novamente".
+const publicVapidKey = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY)
 
 /** Converte a chave VAPID pública (base64url) para o `Uint8Array` esperado pelo PushManager. */
 // O `<ArrayBuffer>` explícito importa: `applicationServerKey` exige um
@@ -72,6 +76,8 @@ export type NotificationsApi = {
   isSubscribed: boolean
   /** Se o navegador suporta Web Push (Notification + Service Worker + PushManager). */
   isSupported: boolean
+  /** Se este deploy tem uma chave VAPID pública utilizável. */
+  isConfigured: boolean
   /** Último erro legível, para exibição na UI. */
   error: string | null
   requestPermission: (apartmentNumber: string) => Promise<NotificationPermission>
@@ -130,7 +136,7 @@ export function useNotifications(): NotificationsApi {
         return getPermissionSnapshot()
       }
       if (!publicVapidKey) {
-        setError("Notificações indisponíveis: chave VAPID não configurada.")
+        setError("Notificações indisponíveis: a chave VAPID deste deploy está ausente ou inválida.")
         return getPermissionSnapshot()
       }
 
@@ -188,5 +194,13 @@ export function useNotifications(): NotificationsApi {
     }
   }, [])
 
-  return { permission, isSubscribed, isSupported, error, requestPermission, unsubscribe }
+  return {
+    permission,
+    isSubscribed,
+    isSupported,
+    isConfigured: publicVapidKey !== null,
+    error,
+    requestPermission,
+    unsubscribe,
+  }
 }

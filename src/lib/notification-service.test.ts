@@ -15,6 +15,10 @@ vi.mock("web-push", () => ({
 
 const NOW = new Date(2026, 6, 27, 10, 0)
 
+/** Chave de fachada com o formato real: 87 caracteres base64url. */
+const CHAVE_PUBLICA_VALIDA =
+  "BPTqZN88yMEP4Femto_G0OwYKXVn9whAZYlfVDi4IVB0sTSbmvJKA2rTKA0PCzpnwU5jAAmjkLgX3CeYdG0tdac"
+
 function booking(overrides: Record<string, unknown> = {}) {
   return {
     id: "b1",
@@ -50,7 +54,7 @@ beforeEach(() => {
   resetPrismaMock()
   sendNotification.mockReset().mockResolvedValue({ statusCode: 201 })
   setVapidDetails.mockReset()
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "public-key"
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = CHAVE_PUBLICA_VALIDA
   process.env.VAPID_PRIVATE_KEY = "private-key"
   // Os caminhos de erro logam de propósito; silencia para manter a saída limpa.
   vi.spyOn(console, "error").mockImplementation(() => {})
@@ -64,6 +68,29 @@ describe("ensureVapidConfigured", () => {
 
     expect(ensureVapidConfigured()).toBe(false)
     expect(setVapidDetails).not.toHaveBeenCalled()
+  })
+
+  // Regressão: um placeholder não vazio passava direto para o web-push e só
+  // falhava na hora de enviar. Agora o formato é conferido antes.
+  it("retorna false quando a chave pública é um placeholder malformado", async () => {
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "[SENSITIVE]"
+    const { ensureVapidConfigured } = await importService()
+
+    expect(ensureVapidConfigured()).toBe(false)
+    expect(setVapidDetails).not.toHaveBeenCalled()
+  })
+
+  it("ignora espaços em volta das chaves", async () => {
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = `  ${CHAVE_PUBLICA_VALIDA}\n`
+    process.env.VAPID_PRIVATE_KEY = " private-key "
+    const { ensureVapidConfigured } = await importService()
+
+    expect(ensureVapidConfigured()).toBe(true)
+    expect(setVapidDetails).toHaveBeenCalledWith(
+      expect.any(String),
+      CHAVE_PUBLICA_VALIDA,
+      "private-key"
+    )
   })
 
   it("retorna false quando o web-push rejeita as chaves", async () => {

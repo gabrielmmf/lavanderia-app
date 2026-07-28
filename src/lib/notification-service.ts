@@ -1,6 +1,6 @@
 import webPush, { type PushSubscription as WebPushSubscription } from "web-push"
 import { prisma } from "./prisma"
-import { NOTIFICATION_LEAD_MINUTES } from "./notifications-config"
+import { NOTIFICATION_LEAD_MINUTES, normalizeVapidPublicKey } from "./notifications-config"
 
 /** Assunto exigido pelo protocolo VAPID (mailto: ou URL). */
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT ?? "mailto:admin@lavanderia.app"
@@ -17,8 +17,10 @@ let vapidConfigured = false
 export function ensureVapidConfigured(): boolean {
   if (vapidConfigured) return true
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
+  // Mesma validação de formato do client: uma chave inválida aqui derrubaria o
+  // ciclo inteiro com um erro genérico do web-push, difícil de ligar à causa.
+  const publicKey = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY)
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim()
   if (!publicKey || !privateKey) return false
 
   try {

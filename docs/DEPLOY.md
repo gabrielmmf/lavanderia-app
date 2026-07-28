@@ -219,6 +219,19 @@ npx vercel env add VAPID_SUBJECT <ambiente> # opcional: mailto:voce@exemplo.com
 `NEXT_PUBLIC_VAPID_PUBLIC_KEY` é embutida no bundle em tempo de build: trocá-la
 exige um novo deploy.
 
+Cole o valor **cru**, sem aspas e sem espaços em volta. A chave pública tem
+exatamente 87 caracteres do alfabeto base64url (`A-Z a-z 0-9 - _`); qualquer
+outra coisa — inclusive um placeholder copiado de um log com segredos
+mascarados — faz o navegador recusar a inscrição, e o app passa a mostrar o
+botão como desativado. Para conferir o que está no ar:
+
+```bash
+curl -s https://lavanderia-app-two.vercel.app/api/health | jq .notifications
+# {"configured": true}
+```
+
+O smoke test do release imprime esse mesmo estado ao final de cada deploy.
+
 O `CRON_SECRET` da Vercel e o secret de mesmo nome no GitHub **têm que ser o
 mesmo valor** — é ele que o `cron-notifications.yml` envia no header. Divergiu,
 o endpoint responde 401.

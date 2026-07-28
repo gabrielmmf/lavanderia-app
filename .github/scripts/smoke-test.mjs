@@ -185,7 +185,32 @@ async function checkDatabaseIdentity() {
     return false
   }
 
+  reportNotificationsConfig(body)
+
   return true
+}
+
+/**
+ * Avisa quando o deploy subiu sem Web Push utilizável.
+ *
+ * Não reprova o smoke test de propósito: o app sem VAPID funciona normalmente,
+ * só fica sem notificações, e travar o release por causa de uma variável de
+ * ambiente que o CI não controla deixaria o deploy pela metade. Mas o aviso
+ * precisa existir — foi assim que uma chave inválida ficou meses em produção,
+ * visível só para quem clicasse no botão de ativar.
+ */
+function reportNotificationsConfig(body) {
+  if (body?.notifications?.configured === true) {
+    console.log("✓ notificações — chaves VAPID válidas neste deploy")
+    return
+  }
+
+  console.warn(
+    "⚠ notificações DESATIVADAS neste deploy: as chaves VAPID estão ausentes ou inválidas.\n" +
+      "  Confira NEXT_PUBLIC_VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY na Vercel.\n" +
+      "  A pública tem 87 caracteres base64url — se houver placeholder, aspas ou\n" +
+      "  espaço colado no valor, o navegador recusa a inscrição."
+  )
 }
 
 console.log(

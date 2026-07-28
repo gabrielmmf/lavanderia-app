@@ -27,10 +27,13 @@ const PROMPT_DELAY_MS = 1500
 export default function Home() {
   const [refresh, setRefresh] = useState(0)
   const [apartment, setApartment] = useStoredApartment()
-  const { permission, isSupported, requestPermission } = useNotifications()
+  const { permission, isSupported, isConfigured, requestPermission } = useNotifications()
   const [showPrompt, setShowPrompt] = useState(false)
 
-  const canPrompt = isSupported && permission === "default" && apartment.trim() !== ""
+  // `isConfigured` entra aqui pelo mesmo motivo do botão: sem chave VAPID
+  // válida o convite só levaria a um erro.
+  const canPrompt =
+    isSupported && isConfigured && permission === "default" && apartment.trim() !== ""
 
   useEffect(() => {
     if (!canPrompt) return
