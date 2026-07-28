@@ -1,0 +1,53 @@
+name: Canary do ruleset
+
+# TEMPORÁRIO — este workflow existe só para responder a uma pergunta:
+# o bot do GitHub Actions consegue empurrar um commit para uma branch protegida
+# pelo mesmo ruleset da main? É exatamente o que o release.yml precisa fazer.
+#
+# Empurra numa branch descartável (`canary-ruleset`), nunca na main.
+# Removido assim que a resposta for obtida.
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat-notifications-and-improve-scheduling]
+    paths: [".github/workflows/canary-ruleset.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  testar-push:
+    name: O bot consegue empurrar?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canary-ruleset
+          fetch-depth: 0
+
+      - name: Tentar push como github-actions[bot]
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "test: canary do ruleset [skip ci]"
+
+          echo "## Resultado do canary" >> "$GITHUB_STEP_SUMMARY"
+          if git push origin HEAD:canary-ruleset 2>/tmp/erro.txt; then
+            echo "RESULTADO: PUSH ACEITO"
+            {
+              echo ""
+              echo "✅ **O bot consegue empurrar.** O ruleset com \`required_status_checks\`"
+              echo "não bloqueia push direto do GITHUB_TOKEN — o release.yml vai funcionar."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "RESULTADO: PUSH RECUSADO"
+            {
+              echo ""
+              echo "❌ **O bot foi bloqueado.** O release.yml falharia no commit de versão."
+              echo ""
+              echo '```'
+              cat /tmp/erro.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/erro.txt
+          fi
