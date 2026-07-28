@@ -6,41 +6,37 @@ import { BookingList } from "@/components/booking/BookingList"
 import { RulesDialog } from "@/components/booking/RulesDialog"
 import { Info } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { getStoredApartment, setStoredApartment } from "@/lib/apartment-storage"
+import { useStoredApartment } from "@/lib/apartment-storage"
 import { NotificationToggle } from "@/components/booking/NotificationToggle"
 import { useNotifications } from "@/lib/useNotifications"
+import { NOTIFICATION_LEAD_MINUTES } from "@/lib/notifications-config"
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+
+/** Espera antes de sugerir as notificações, para não atropelar o carregamento. */
+const PROMPT_DELAY_MS = 1500
+
 export default function Home() {
   const [refresh, setRefresh] = useState(0)
-  const [apartment, setApartment] = useState("")
-  const { permission, requestPermission } = useNotifications()
+  const [apartment, setApartment] = useStoredApartment()
+  const { permission, isSupported, requestPermission } = useNotifications()
   const [showPrompt, setShowPrompt] = useState(false)
 
-  useEffect(() => {
-    setApartment(getStoredApartment())
-  }, [])
+  const canPrompt = isSupported && permission === "default" && apartment.trim() !== ""
 
   useEffect(() => {
-    if (apartment) setStoredApartment(apartment)
-  }, [apartment])
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (permission === 'default') {
-        setShowPrompt(true)
-      }
-    }, 1500)
+    if (!canPrompt) return
+    const timer = setTimeout(() => setShowPrompt(true), PROMPT_DELAY_MS)
     return () => clearTimeout(timer)
-  }, [permission])
+  }, [canPrompt])
 
   return (
     <main className="min-h-screen bg-muted p-4 pt-6 sm:p-6 pb-8 safe-area-padding">
@@ -68,21 +64,24 @@ export default function Home() {
 
       <AlertDialog open={showPrompt} onOpenChange={setShowPrompt}>
         <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Deseja receber notificações?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Podemos avisar você 10 minutos antes do seu horário começar e terminar.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Agora não</AlertDialogCancel>
-                <AlertDialogAction onClick={() => {
-                    requestPermission(apartment);
-                    setShowPrompt(false);
-                }}>
-                    Sim, ativar
-                </AlertDialogAction>
-            </AlertDialogFooter>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deseja receber notificações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Podemos avisar você {NOTIFICATION_LEAD_MINUTES} minutos antes do seu
+              horário começar e terminar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Agora não</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void requestPermission(apartment)
+                setShowPrompt(false)
+              }}
+            >
+              Sim, ativar
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </main>

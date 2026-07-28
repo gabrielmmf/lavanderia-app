@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import {
   Dialog,
   DialogContent,
@@ -13,25 +13,58 @@ import { Button } from "@/components/ui/button"
 
 const SESSION_KEY = "lavanderia-rules-seen"
 
+const seenListeners = new Set<() => void>()
+
+function subscribeSeen(onStoreChange: () => void) {
+  seenListeners.add(onStoreChange)
+  return () => {
+    seenListeners.delete(onStoreChange)
+  }
+}
+
+function getSeenSnapshot(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) !== null
+  } catch {
+    return true // storage bloqueado: não force o diálogo
+  }
+}
+
+/** No servidor consideramos "já visto" para não abrir o diálogo antes da hidratação. */
+function getServerSeenSnapshot(): boolean {
+  return true
+}
+
+function markSeen() {
+  try {
+    sessionStorage.setItem(SESSION_KEY, "1")
+  } catch {
+    // ignora storage indisponível
+  }
+  for (const listener of seenListeners) listener()
+}
+
 type RulesDialogProps = {
   trigger?: React.ReactNode
 }
 
 export function RulesDialog({ trigger }: RulesDialogProps) {
-  const [open, setOpen] = useState(false)
+  // `seen` vem do sessionStorage (external store) em vez de setState num efeito.
+  const seen = useSyncExternalStore(subscribeSeen, getSeenSnapshot, getServerSeenSnapshot)
+  const [manuallyOpened, setManuallyOpened] = useState(false)
 
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const seen = sessionStorage.getItem(SESSION_KEY)
-    if (!seen) {
-      setOpen(true)
+  const open = manuallyOpened || !seen
+
+  function setOpen(next: boolean) {
+    if (next) {
+      setManuallyOpened(true)
+      return
     }
-  }, [])
+    setManuallyOpened(false)
+    markSeen()
+  }
 
   function handleClose() {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem(SESSION_KEY, "1")
-    }
     setOpen(false)
   }
 
@@ -47,13 +80,7 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
           {trigger}
         </button>
       )}
-      <Dialog
-        open={open}
-        onOpenChange={(o) => {
-          setOpen(o)
-          if (!o) handleClose()
-        }}
-      >
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Como funciona a Lavanderia</DialogTitle>

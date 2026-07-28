@@ -1,8 +1,18 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/notifications",
-      "schedule": "*/5 * * * *"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+
+  "//": "gru1 (São Paulo) fica junto do banco Neon em sa-east-1; sem isso cada query cruza o continente.",
+  "regions": ["gru1"],
+
+  "functions": {
+    "src/app/api/cron/notifications/route.ts": {
+      "maxDuration": 60
     }
-  ]
+  },
+
+  "//git": "Quem faz deploy é o GitHub Actions, depois dos testes. O auto-deploy por push da Vercel é desligado para que nada chegue à produção sem passar pelo CI.",
+  "git": {
+    "deploymentEnabled": false
+  }
 }

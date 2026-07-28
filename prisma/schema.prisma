@@ -21,5 +21,22 @@ model Booking {
   endTime         DateTime
   createdAt       DateTime @default(now())
 
+  /// Marcado quando a notificação de "início próximo" já foi enviada.
+  startNotified Boolean @default(false)
+  /// Marcado quando a notificação de "término próximo" já foi enviada.
+  endNotified   Boolean @default(false)
+
   @@index([machineNumber, startTime, endTime])
+}
+
+/// Inscrição Web Push de um dispositivo, associada a um apartamento.
+model PushSubscription {
+  id              String   @id @default(uuid())
+  apartmentNumber String
+  endpoint        String   @unique
+  p256dh          String
+  auth            String
+  createdAt       DateTime @default(now())
+
+  @@index([apartmentNumber])
 }

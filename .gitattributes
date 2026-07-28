@@ -1,0 +1,14 @@
+# Normaliza as quebras de linha no repositório: LF no git, nativo no checkout.
+# Sem isso, um mesmo arquivo editado no Windows e no runner Linux aparece como
+# reescrito por inteiro no diff.
+* text=auto eol=lf
+
+# Gerado — não conta como código nas estatísticas nem no diff do pull request.
+package-lock.json linguist-generated=true
+prisma/migrations/** linguist-generated=true
+
+# Binários
+*.ico binary
+*.png binary
+*.jpg binary
+*.woff2 binary

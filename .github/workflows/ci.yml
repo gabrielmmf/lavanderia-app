@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+  workflow_dispatch:
+
+# Um push novo no PR cancela a execução anterior — evita fila e gasto à toa.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Qualidade
+    uses: ./.github/workflows/quality.yml
+
+  changeset:
+    name: Changeset
+    runs-on: ubuntu-latest
+    # Pule com a label `skip-changeset` quando a mudança realmente não merece
+    # versão (ex.: ajuste isolado de workflow).
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changeset') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # Refspec explícita: garante que `origin/main` exista localmente para o
+      # `--since` do changeset, independente de como o checkout configurou o remote.
+      - name: Garantir base de comparação
+        run: git fetch origin main:refs/remotes/origin/main
+
+      - name: Verificar se há changeset neste PR
+        run: |
+          if npx changeset status --since=origin/main; then
+            echo "Changeset encontrado."
+          else
+            echo "::error::Nenhum changeset neste pull request."
+            echo "Rode 'npm run changeset' e commite o arquivo gerado em .changeset/."
+            echo "Se a mudança não merece versão, use 'npx changeset --empty' ou aplique a label 'skip-changeset'."
+            exit 1
+          fi

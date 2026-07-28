@@ -40,4 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# prisma client gerado — sempre reconstruído por `prisma generate`
 /src/generated/prisma
+
+# configuração local do Claude Code (a compartilhada fica versionada)
+.claude/settings.local.json

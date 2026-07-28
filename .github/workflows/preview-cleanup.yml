@@ -1,0 +1,22 @@
+name: Limpeza do preview
+
+# Ao fechar (ou mergear) o pull request, apaga a branch do Neon criada para ele.
+# Sem isso as branches acumulam e consomem a cota do projeto.
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-neon-branch:
+    name: Apagar branch do Neon
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Apagar branch preview/pr-${{ github.event.pull_request.number }}
+        uses: neondatabase/delete-branch-action@v3
+        continue-on-error: true # a branch pode nunca ter sido criada
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/pr-${{ github.event.pull_request.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}

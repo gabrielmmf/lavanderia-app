@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,38 +18,15 @@ import {
 import { DateTimePicker } from "./DateTimePicker"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { MACHINE_NUMBERS } from "@/lib/booking-rules"
+import {
+    DEFAULT_DURATION_MINUTES,
+    DURATION_OPTIONS,
+    computeEnd,
+    getDefaultStart,
+} from "@/lib/booking-time"
 
-function getDefaultStart(): Date {
-    const d = new Date()
-    const now = d.getTime()
-    d.setHours(8, 0, 0, 0)
-    if (d.getTime() <= now) {
-        d.setTime(now)
-        const m = d.getMinutes()
-        d.setMinutes(m <= 30 ? 30 : 60, 0, 0)
-    }
-    return d
-}
-
-function getDefaultEnd(): Date {
-    const start = getDefaultStart()
-    const d = new Date(start)
-    d.setMinutes(d.getMinutes() + 120, 0, 0)
-    return d
-}
-
-const MACHINES = [1, 2, 3] as const
-
-const DURATION_OPTIONS = [
-    { label: "30 min", value: 30 },
-    { label: "1 hora", value: 60 },
-    { label: "1h 30m", value: 90 },
-    { label: "2 horas", value: 120 },
-    { label: "3 horas", value: 180 },
-    { label: "4 horas", value: 240 },
-    { label: "6 horas", value: 360 },
-    { label: "8 horas", value: 480 },
-]
+const MACHINES = MACHINE_NUMBERS
 
 export function BookingForm({
     apartment,
@@ -61,11 +38,11 @@ export function BookingForm({
     onCreated: () => void
 }) {
     const [machine, setMachine] = useState<number>(1)
-    const [start, setStart] = useState<Date>(getDefaultStart)
-    const [duration, setDuration] = useState<number>(120) // Default 2 hours
+    const [start, setStart] = useState<Date>(() => getDefaultStart())
+    const [duration, setDuration] = useState<number>(DEFAULT_DURATION_MINUTES)
 
-    const end = new Date(start)
-    end.setMinutes(end.getMinutes() + duration)
+    const end = useMemo(() => computeEnd(start, duration), [start, duration])
+
     const [loading, setLoading] = useState(false)
     const [showReplaceConfirm, setShowReplaceConfirm] = useState(false)
     const [pendingData, setPendingData] = useState<{

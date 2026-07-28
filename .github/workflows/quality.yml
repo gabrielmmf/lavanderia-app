@@ -1,0 +1,111 @@
+name: Qualidade
+
+# Workflow reutilizável com todos os portões de qualidade.
+# Chamado pelo CI (em pull requests) e pelo Release (antes de ir para produção),
+# para que produção nunca receba código que não passou exatamente pelas mesmas
+# verificações do pull request.
+on:
+  workflow_call:
+
+env:
+  NODE_VERSION: "24"
+  # Valores de fachada: o build precisa que as variáveis existam, mas nenhum
+  # passo aqui abre conexão com banco real.
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/placeholder
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: ci-placeholder-public-key
+
+jobs:
+  verify:
+    name: Lint, tipos, testes e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Verificar tipos
+        run: npm run typecheck
+
+      - name: Testes
+        run: npm run test
+
+      - name: Build de produção
+        run: npm run build
+
+  migrations:
+    name: Migrations do Prisma
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # `prisma.config.ts` prefere a conexão direta para migrations.
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/migrate_check
+      # Lido por `prisma.config.ts`; no Prisma 7 o shadow database é
+      # configuração, não flag de linha de comando.
+      SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/drift_check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Validar schema.prisma
+        run: npm run db:validate
+
+      - name: Preparar bancos de verificação
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -c 'CREATE DATABASE migrate_check;' \
+            -c 'CREATE DATABASE drift_check;'
+        env:
+          PGPASSWORD: postgres
+
+      # Garante que a sequência completa de migrations aplica num banco vazio.
+      # Pega migration corrompida, ordem errada e SQL inválido antes de produção.
+      - name: Aplicar todas as migrations do zero
+        run: npm run db:deploy
+
+      # Garante que `schema.prisma` e a pasta `migrations` contam a mesma história.
+      # Sem isso, um schema editado sem migration correspondente (ou vice-versa)
+      # só quebraria em produção — foi exatamente o que aconteceu antes deste CI.
+      - name: Detectar divergência entre schema e migrations
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --exit-code \
+          && echo "Schema e migrations estão sincronizados." \
+          || {
+            echo "::error::schema.prisma diverge das migrations."
+            echo "Rode 'npm run db:migrate -- --name descricao_da_mudanca' e commite a migration gerada."
+            exit 1
+          }
