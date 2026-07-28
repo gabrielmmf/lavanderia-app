@@ -1,0 +1,86 @@
+name: Limpeza
+
+# Manutenção semanal do que os outros workflows não limpam sozinhos.
+#
+# Deployments de PRODUÇÃO nunca são tocados: eles são os alvos de rollback
+# instantâneo da Vercel, e perder esse histórico custa muito mais do que o
+# espaço que ocupam.
+on:
+  schedule:
+    - cron: "0 4 * * 1" # segundas, 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apagar de verdade (desmarcado = apenas simula)"
+        type: boolean
+        default: false
+      retention_days:
+        description: "Idade mínima, em dias, para remover um preview"
+        type: string
+        default: "14"
+
+permissions:
+  contents: read
+
+jobs:
+  vercel:
+    name: Previews antigos da Vercel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Remover previews antigos
+        run: node .github/scripts/prune-deployments.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          RETENTION_DAYS: ${{ inputs.retention_days || '14' }}
+          KEEP_RECENT: "5"
+          # No agendamento apaga; no disparo manual só simula, a menos que
+          # a caixa tenha sido marcada.
+          APPLY: ${{ github.event_name == 'schedule' && 'true' || inputs.apply }}
+
+  neon:
+    name: Branches órfãs no Neon
+    runs-on: ubuntu-latest
+    steps:
+      - name: Listar branches sem pull request aberto
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branches=$(curl -sS -H "Authorization: Bearer $NEON_API_KEY" \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+                const j=JSON.parse(d);
+                for(const b of j.branches||[]) if(b.name.startsWith('preview/')) console.log(b.name);
+              }")
+
+          abertos=$(gh pr list --state open --json number --jq '.[].number' | sed 's|^|preview/pr-|')
+
+          echo "## Branches de preview no Neon" >> "$GITHUB_STEP_SUMMARY"
+          orfas=0
+          for b in $branches; do
+            if echo "$abertos" | grep -qx "$b"; then
+              echo "- \`$b\` — pull request aberto, mantida" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- \`$b\` — **órfã**, sem pull request aberto" >> "$GITHUB_STEP_SUMMARY"
+              orfas=$((orfas + 1))
+            fi
+          done
+
+          if [ "$orfas" -gt 0 ]; then
+            {
+              echo ""
+              echo "$orfas branch(es) órfã(s). O \`preview-cleanup.yml\` só apaga \`preview/pr-N\`"
+              echo "ao fechar o pull request; branches criadas pela integração Neon↔Vercel"
+              echo "(ex.: \`preview/HEAD\`) precisam ser removidas à mão, ou a integração"
+              echo "desativada em Vercel → Settings → Integrations → Neon."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

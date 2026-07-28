@@ -298,4 +298,25 @@ gh workflow run cron-notifications.yml
 2. **Banco:** não reverta migrations. Se a migration for o problema, crie uma
    nova migration corrigindo e faça uma nova release.
 
+## Limpeza automática
+
+O `limpeza.yml` roda toda segunda-feira e também sob demanda:
+
+```bash
+gh workflow run limpeza.yml                      # simula, não apaga
+gh workflow run limpeza.yml -f apply=true        # apaga de verdade
+```
+
+**Deployments da Vercel** — remove previews com mais de 14 dias, preservando
+sempre: todos os de produção (são os alvos de rollback), os 5 previews mais
+recentes, e qualquer um com alias ativo.
+
+**Branches do Neon** — apenas *relata* branches `preview/*` sem pull request
+aberto, sem apagar. Apagar automaticamente banco é uma linha que não vale a pena
+cruzar: o relatório aparece no resumo da execução e a remoção é decisão sua.
+
+O caminho normal já se limpa sozinho: o `preview-cleanup.yml` apaga
+`preview/pr-N` ao fechar o pull request, e o repositório está configurado para
+apagar a branch do git no merge.
+
 Diagnóstico detalhado: skill `.claude/skills/diagnosticar-deploy/SKILL.md`.

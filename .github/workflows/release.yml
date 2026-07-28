@@ -80,9 +80,26 @@ jobs:
           git add -A
           git commit -m "chore(release): v$version [skip ci]"
           npx changeset tag
+
           # Push feito com o GITHUB_TOKEN padrão: por design o GitHub não
           # dispara novos workflows a partir dele, então não há loop de release.
-          git push --follow-tags origin HEAD:main
+          #
+          # Este passo roda ANTES das migrations e do deploy de propósito: se o
+          # ruleset da main recusar o push, nada foi alterado em produção.
+          if ! git push --follow-tags origin HEAD:main; then
+            echo "::error::O push do commit de versão para a main foi recusado."
+            echo ""
+            echo "Quase sempre é o ruleset da main bloqueando o bot do GitHub Actions."
+            echo "Nada foi aplicado em produção — o release parou antes das migrations."
+            echo ""
+            echo "Como resolver (escolha um):"
+            echo "  a) Remova a regra 'required_status_checks' do ruleset da main:"
+            echo "     gh api repos/\$GITHUB_REPOSITORY/rulesets"
+            echo "  b) Ou empurre com um PAT do dono do repositório em vez do GITHUB_TOKEN."
+            echo ""
+            echo "Depois, re-execute este workflow: gh workflow run release.yml"
+            exit 1
+          fi
 
       - name: Criar GitHub Release
         if: steps.version.outputs.released == 'true'
