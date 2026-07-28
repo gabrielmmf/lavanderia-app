@@ -12,7 +12,10 @@ env:
   # Valores de fachada: o build precisa que as variáveis existam, mas nenhum
   # passo aqui abre conexão com banco real.
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/placeholder
-  NEXT_PUBLIC_VAPID_PUBLIC_KEY: ci-placeholder-public-key
+  # Chave descartável, mas com o formato real (87 caracteres base64url): o app
+  # agora recusa chave malformada, e um placeholder qualquer faria o build sair
+  # com as notificações desligadas sem ninguém perceber.
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: BPTqZN88yMEP4Femto_G0OwYKXVn9whAZYlfVDi4IVB0sTSbmvJKA2rTKA0PCzpnwU5jAAmjkLgX3CeYdG0tdac
 
 jobs:
   verify:

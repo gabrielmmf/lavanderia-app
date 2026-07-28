@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { isAuthorizedCronRequest } from "@/lib/cron-auth"
 import { databaseEndpointId } from "@/lib/database-info"
 import { errorMessage } from "@/lib/api-errors"
+import { ensureVapidConfigured } from "@/lib/notification-service"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -46,6 +47,11 @@ export async function GET(request: Request) {
     {
       ok,
       timestamp: new Date().toISOString(),
+      // Deliberadamente fora do `ok`: sem VAPID o app continua íntegro, só sem
+      // notificações — é o comportamento documentado. Mas o estado precisa
+      // aparecer em algum lugar, senão uma chave inválida em produção só é
+      // descoberta por um morador clicando num botão que nunca funciona.
+      notifications: { configured: ensureVapidConfigured() },
       database: {
         reachable,
         schemaUpToDate,
