@@ -93,7 +93,21 @@ push para um PAT do dono (ver `docs/DEPLOY.md`).
 | `Invalid vercel.json - should NOT have additional property` | Campo fora do schema da Vercel. Não existe comentário em `vercel.json` (nem chaves `"//"`); documente em `docs/DEPLOY.md`. |
 | smoke test: "bloqueado pelo Deployment Protection" | falta `VERCEL_AUTOMATION_BYPASS_SECRET`     |
 | falha no smoke test                             | build ok, app não responde → `npx vercel logs` |
-| o job nem começou                               | PR vindo de fork (sem secrets) — é esperado    |
+| o job nem começou                               | PR vindo de fork ou do Dependabot (sem secrets) — é esperado |
+
+## "Os pull requests do Dependabot estão vermelhos"
+
+Eles rodam **só o portão de qualidade**; preview e changeset são pulados pelo
+autor do PR (`github.event.pull_request.user.login == 'dependabot[bot]'`). Se
+mesmo assim falharem:
+
+| Job que falhou                | O que significa                                  |
+| ----------------------------- | ------------------------------------------------ |
+| `Banco + deploy de preview`   | o guard do `preview.yml` foi removido. PR do Dependabot lê o cofre "Dependabot secrets", então `NEON_API_KEY` chega vazio: `Input required and not supplied: api_key` |
+| `Changeset`                   | o guard do `ci.yml` foi removido. Não confie na label: o Dependabot só aplica label que **já exista** no repositório (`gh label list`) e ignora as que faltam, em silêncio |
+| `Qualidade`                   | **é o CI funcionando** — a dependência nova quebrou lint/tipos/testes/build. Corrija ou feche o PR |
+
+O detalhamento está em `docs/DEPLOY.md`.
 
 ## "As migrations não aplicaram"
 

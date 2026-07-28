@@ -30,12 +30,13 @@ Adiciona notificações Web Push para início e término das reservas.
 
 ## Mudanças que não merecem versão
 
-Alterações puramente internas (CI, README, configuração de editor) podem usar um
-changeset vazio, que satisfaz o CI sem gerar bump de versão:
+Alterações puramente internas (CI, README, configuração de editor) usam a label
+`skip-changeset` no pull request. Ela desliga o check no `ci.yml`.
 
-```bash
-npx changeset --empty
-```
+`npx changeset --empty` **não** serve aqui: o check roda
+`changeset status --since=origin/main`, que só conta changesets declarando
+release. Um changeset vazio não declara nenhum, então o check continua
+reprovando — só a label resolve.
 
 ## O que acontece depois
 

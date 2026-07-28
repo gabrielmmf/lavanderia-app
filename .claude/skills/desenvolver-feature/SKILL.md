@@ -204,7 +204,8 @@ CHANGELOG e a GitHub Release:
 Agora dá para escolher a duração da reserva em vez de digitar o horário de fim.
 ```
 
-Mudança puramente interna (workflow, README): `npx changeset --empty`.
+Mudança puramente interna (workflow, README): não crie changeset — aplique a
+label `skip-changeset` no pull request. O changeset vazio não passa no check.
 
 ## 7. Valide tudo
 

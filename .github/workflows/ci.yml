@@ -21,7 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     # Pule com a label `skip-changeset` quando a mudança realmente não merece
     # versão (ex.: ajuste isolado de workflow).
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changeset') }}
+    #
+    # Dependabot é dispensado pelo autor, não pela label: ele só consegue
+    # aplicar labels que já existam no repositório, e um bump de dependência
+    # não tem quem escreva o changeset. A versão do app é bumpada quando o
+    # código muda; atualizar dependência entra na release seguinte.
+    if: >-
+      ${{
+        !contains(github.event.pull_request.labels.*.name, 'skip-changeset')
+        && github.event.pull_request.user.login != 'dependabot[bot]'
+      }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +56,9 @@ jobs:
           else
             echo "::error::Nenhum changeset neste pull request."
             echo "Rode 'npm run changeset' e commite o arquivo gerado em .changeset/."
-            echo "Se a mudança não merece versão, use 'npx changeset --empty' ou aplique a label 'skip-changeset'."
+            # `changeset --empty` NÃO satisfaz este check: o `status --since`
+            # só conta changesets que declaram release, e o vazio não declara
+            # nenhum. Para mudança que não merece versão, o caminho é a label.
+            echo "Se a mudança não merece versão, aplique a label 'skip-changeset' no pull request."
             exit 1
           fi

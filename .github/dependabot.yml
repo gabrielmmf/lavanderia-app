@@ -1,3 +1,7 @@
+# As labels abaixo precisam existir no repositório: o Dependabot só aplica
+# label já criada, e falha em silêncio se ela não existir. Elas são só
+# organização — quem de fato dispensa o changeset é o `ci.yml`, olhando o autor
+# do pull request.
 version: 2
 updates:
   - package-ecosystem: npm
