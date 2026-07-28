@@ -63,9 +63,53 @@ testes terminarem — o CI vira relatório, não portão. Com o deploy no Action
 
 | Ambiente | Banco                          | Quem deploya      | URL                     |
 | -------- | ------------------------------ | ----------------- | ----------------------- |
-| Local    | sua branch pessoal no Neon     | `npm run dev`     | `localhost:3000`        |
+| Local    | branch `vercel-dev` do Neon    | `npm run dev`     | `localhost:3000`        |
 | Preview  | `preview/pr-N`, criada pelo CI | `preview.yml`     | comentada no PR         |
-| Produção | branch de produção do Neon     | `release.yml`     | `PRODUCTION_URL`        |
+| Produção | branch `production` do Neon    | `release.yml`     | `PRODUCTION_URL`        |
+
+### Qual banco cada variável aponta
+
+Estado auditado e correto:
+
+| Ambiente na Vercel | `DATABASE_URL` | `DATABASE_URL_UNPOOLED` |
+| ------------------ | -------------- | ----------------------- |
+| Production         | `production`   | `production`            |
+| Preview            | `vercel-dev`   | (ausente, não é usada)  |
+| Development        | `vercel-dev`   | `vercel-dev`            |
+
+O `DATABASE_URL` de Preview é apenas **fallback**: o `preview.yml` injeta a URL
+da branch do PR por deployment (`vercel deploy --env DATABASE_URL=...`), que tem
+precedência sobre a variável do projeto. O fallback aponta para `vercel-dev`
+justamente para que um `vercel deploy` manual, fora do CI, nunca toque produção.
+
+> Auditoria de 2026-07-28: antes disso, **Preview e Development apontavam para
+> `production`**. Development era ainda pior: o app lia produção
+> (`DATABASE_URL`) enquanto as migrations iam para `vercel-dev`
+> (`DATABASE_URL_UNPOOLED`) — incoerência silenciosa.
+
+O smoke test do CI passou a **exigir** que o deploy esteja no banco esperado,
+via `/api/health`. Se um preview apontar para produção, o pull request falha.
+
+### Cuidado: a integração Neon↔Vercel
+
+Existe uma integração Neon↔Vercel instalada neste projeto. Ela cria branches de
+banco por conta própria — foi ela que criou `vercel-dev` e, quando o CI passou a
+deployar pela CLI, uma branch órfã `preview/HEAD` (o deploy via CLI não carrega
+metadados de git, então o nome resolve para `HEAD`).
+
+Branches criadas por ela **não têm anotações**; as nossas carregam
+`github-pr-number` e afins, o que permite distinguir a origem:
+
+```bash
+curl -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID" \
+  | jq '.annotation.value'
+```
+
+O `preview-cleanup.yml` só apaga `preview/pr-N`, então as órfãs se acumulam e
+consomem a cota (plano free: **10 branches**). Recomendado desativar a criação
+automática de branches da integração em **Vercel → Settings → Integrations →
+Neon**, já que o CI faz isso de forma determinística e com limpeza automática.
 
 ## Migrations: a regra expand/contract
 

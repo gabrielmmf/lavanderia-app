@@ -120,8 +120,24 @@ jobs:
           url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      - name: Verificar que produção responde
+      - name: Determinar o banco esperado
+        id: expected
+        env:
+          PRODUCTION_DB: ${{ secrets.PRODUCTION_DATABASE_URL_UNPOOLED }}
+        run: |
+          endpoint=$(node -e "
+            const { hostname } = new URL(process.env.PRODUCTION_DB);
+            process.stdout.write(hostname.split('.')[0].replace(/-pooler\$/, ''));
+          ")
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      # Confirma que produção está no banco de produção e com as migrations
+      # deste release aplicadas — não só que o deploy respondeu.
+      - name: Verificar que produção responde e usa o banco certo
         run: node .github/scripts/smoke-test.mjs "${{ vars.PRODUCTION_URL || steps.deploy.outputs.url }}"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DB_ENDPOINT: ${{ steps.expected.outputs.endpoint }}
 
       - name: Resumo
         env:

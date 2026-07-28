@@ -97,12 +97,29 @@ jobs:
 
       # "Hospedado corretamente" não é o deploy ter terminado, é a página
       # responder. Falha aqui derruba o pull request.
-      - name: Verificar que o preview responde
+      # Extrai o identificador do compute endpoint da branch criada acima, para
+      # que o smoke test possa exigir que o deploy esteja falando com ELA.
+      - name: Determinar o banco esperado
+        id: expected
+        env:
+          NEON_POOLED_URL: ${{ steps.neon.outputs.db_url_pooled }}
+        run: |
+          endpoint=$(node -e "
+            const { hostname } = new URL(process.env.NEON_POOLED_URL);
+            process.stdout.write(hostname.split('.')[0].replace(/-pooler\$/, ''));
+          ")
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+          echo "Preview deve estar conectado a: $endpoint"
+
+      - name: Verificar que o preview responde e usa a branch do PR
         run: node .github/scripts/smoke-test.mjs "${{ steps.deploy.outputs.url }}"
         env:
           # Previews ficam atrás do Deployment Protection da Vercel; sem esse
           # segredo o smoke test só enxerga a tela de login do SSO.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Provam, a cada PR, que o preview NÃO está lendo o banco de produção.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DB_ENDPOINT: ${{ steps.expected.outputs.endpoint }}
 
       - name: Comentar a URL no pull request
         run: node .github/scripts/pr-comment.mjs

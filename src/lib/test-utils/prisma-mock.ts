@@ -22,6 +22,7 @@ export const prismaMock = {
   },
   pushSubscription: {
     findMany: vi.fn(),
+    count: vi.fn(),
     upsert: vi.fn(),
     delete: vi.fn(),
     deleteMany: vi.fn(),
@@ -41,5 +42,6 @@ export function resetPrismaMock() {
   prismaMock.booking.updateMany.mockResolvedValue({ count: 0 })
   prismaMock.booking.deleteMany.mockResolvedValue({ count: 0 })
   prismaMock.pushSubscription.findMany.mockResolvedValue([])
+  prismaMock.pushSubscription.count.mockResolvedValue(0)
   prismaMock.pushSubscription.deleteMany.mockResolvedValue({ count: 0 })
 }

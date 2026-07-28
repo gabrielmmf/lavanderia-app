@@ -19,6 +19,8 @@
 
 const baseUrl = process.argv[2]?.trim().replace(/\/$/, "")
 const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+const healthSecret = process.env.CRON_SECRET
+const expectedEndpoint = process.env.EXPECTED_DB_ENDPOINT?.trim()
 
 if (!baseUrl) {
   console.error("Uso: smoke-test.mjs <url-base>")
@@ -27,6 +29,7 @@ if (!baseUrl) {
 
 const CHECKS = [
   { path: "/", description: "página inicial" },
+  { path: "/api/health", description: "health check (banco e schema)" },
   { path: "/api/bookings", description: "API de agendamentos (lê o banco)" },
 ]
 
@@ -53,12 +56,12 @@ function isVercelHost(url) {
  * Faz a requisição resolvendo redirects manualmente, para distinguir
  * "o app redirecionou" de "a Vercel bloqueou".
  */
-async function request(url) {
+async function request(url, extraHeaders = {}) {
   let current = url
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const response = await fetch(current, {
-      headers,
+      headers: { ...headers, ...extraHeaders },
       redirect: "manual",
       signal: AbortSignal.timeout(20_000),
     })
@@ -128,15 +131,74 @@ async function check({ path, description }) {
   return false
 }
 
+/**
+ * Confirma que o deploy está falando com o banco que esperamos.
+ *
+ * Este é o check que impede o cenário mais perigoso do projeto: um preview
+ * apontando para o banco de PRODUÇÃO. Sem ele, tudo responde 200 e o problema
+ * só aparece quando alguém corrompe dados reais.
+ */
+async function checkDatabaseIdentity() {
+  if (!expectedEndpoint) {
+    console.log("… identidade do banco: não verificada (EXPECTED_DB_ENDPOINT ausente)")
+    return true
+  }
+  if (!healthSecret) {
+    console.error("✗ identidade do banco: CRON_SECRET ausente, impossível verificar")
+    return false
+  }
+
+  const result = await request(`${baseUrl}/api/health`, {
+    authorization: `Bearer ${healthSecret}`,
+  })
+
+  if (result.kind !== "response") {
+    console.error(`✗ identidade do banco: /api/health inacessível (${result.kind})`)
+    return false
+  }
+
+  const body = await result.response.json().catch(() => null)
+  const actual = body?.database?.endpoint
+
+  if (!actual) {
+    console.error(
+      "✗ identidade do banco: /api/health não devolveu o endpoint.\n" +
+        "  O CRON_SECRET do CI provavelmente difere do configurado na Vercel."
+    )
+    return false
+  }
+
+  if (actual !== expectedEndpoint) {
+    console.error(
+      `✗ IDENTIDADE DO BANCO ERRADA\n` +
+        `    esperado: ${expectedEndpoint}\n` +
+        `    obtido  : ${actual}\n` +
+        `  Este deploy está conectado à branch errada do Neon.`
+    )
+    return false
+  }
+
+  console.log(`✓ identidade do banco — conectado a ${actual}`)
+
+  if (body?.database?.schemaUpToDate !== true) {
+    console.error("✗ schema desatualizado nesse banco: faltam migrations")
+    return false
+  }
+
+  return true
+}
+
 console.log(
-  `Smoke test em ${baseUrl} ` +
-    `(bypass de proteção: ${bypassSecret ? "configurado" : "ausente"})`
+  `Smoke test em ${baseUrl}\n` +
+    `  bypass de proteção: ${bypassSecret ? "configurado" : "ausente"}\n` +
+    `  banco esperado    : ${expectedEndpoint || "(não verificado)"}`
 )
 
 const results = []
 for (const item of CHECKS) {
   results.push(await check(item))
 }
+results.push(await checkDatabaseIdentity())
 
 if (results.some((ok) => !ok)) {
   console.error(`\nSmoke test falhou para ${baseUrl}`)
