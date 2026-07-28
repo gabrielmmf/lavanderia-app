@@ -99,8 +99,13 @@ export function useNotifications(): NotificationsApi {
 
   useEffect(() => {
     if (!browserSupportsPush()) return
+    // `serviceWorker.ready` só resolve quando já existe um service worker
+    // ativo controlando a página — em primeiro acesso não existe nenhum
+    // ainda, e a promise nunca resolveria. `register` é idempotente (devolve
+    // o registro existente se já houver um), então serve para os dois casos.
     // setState assíncrono (dentro de promise) — não dispara render em cascata.
-    navigator.serviceWorker.ready
+    navigator.serviceWorker
+      .register("/sw.js")
       .then((registration) => registration.pushManager.getSubscription())
       .then((subscription) => {
         setIsSupported(true)
