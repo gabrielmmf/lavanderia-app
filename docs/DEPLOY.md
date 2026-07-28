@@ -215,53 +215,75 @@ Já está em `vercel.json` (`git.deploymentEnabled: false`), aplicado no primeir
 deploy feito pelo Actions. Confirme depois em
 **Vercel → Settings → Git** que os deploys automáticos estão desativados.
 
-## 5. Proteger a `main` (opcional, mas recomendado)
+## 5. Proteção da `main`
 
-Use um **ruleset**, não a proteção de branch clássica. O `release.yml` faz push
-do commit de versão e da tag direto na `main`, e só rulesets permitem liberar
-esse ator específico — com proteção clássica o push do bot seria rejeitado.
+O ruleset `protecao-da-main` está ativo com **`deletion` + `non_fast_forward`**.
+Isso não é preguiça: é o limite do que dá para exigir sem quebrar o release.
+
+### Por que não exigimos status checks nem pull request
+
+O `release.yml` empurra o commit de versão direto na `main` como
+`github-actions[bot]`. Em repositório **pessoal** (não de organização), o
+GitHub recusa `Integration` como bypass actor:
+
+> Actor GitHub Actions integration must be part of the ruleset source or owner organization
+
+O bot também não é coberto pelo bypass de `RepositoryRole: admin`. Testado com
+um ruleset espelho numa branch descartável, fazendo o próprio bot tentar o push:
+
+| Regras do ruleset                           | Push do bot | Erro                                        |
+| ------------------------------------------- | ----------- | ------------------------------------------- |
+| `deletion` + `non_fast_forward`             | ✅ aceito   | —                                           |
+| \+ `required_status_checks`                 | ❌ recusado | `GH013: 3 of 3 required status checks are expected` |
+| \+ `pull_request`                           | ❌ recusado | `Changes must be made through a pull request` |
+
+### O que ainda protege produção
+
+Mesmo sem exigir PR na `main`, **código ruim não chega em produção**: o
+`release.yml` roda o mesmo portão de qualidade (lint, tipos, testes, build,
+migrations, drift) antes de tocar em qualquer coisa. Um push direto de código
+quebrado falha no release e produção continua no deploy anterior.
+
+O ruleset cobre o que o pipeline não cobre: reescrita de história e remoção da
+branch.
+
+### Se quiser exigência forte (opcional)
+
+Para exigir PR e checks verdes na `main`, o push do release precisa vir de um
+ator com bypass — na prática, um **PAT fine-grained do dono** com `contents:
+write`:
+
+1. Crie o PAT e guarde como secret `RELEASE_TOKEN`.
+2. No `release.yml`, use-o no `actions/checkout` (`token: ${{ secrets.RELEASE_TOKEN }}`).
+3. Adicione de volta as regras `pull_request` e `required_status_checks`.
+
+Atenção ao efeito colateral: push com PAT **dispara workflows** (o
+`GITHUB_TOKEN` não dispara). O `[skip ci]` na mensagem do commit de versão já
+existe justamente para evitar o loop de release, mas confirme antes de trocar.
+
+### Comando aplicado
 
 ```bash
 gh api --method POST repos/gabrielmmf/lavanderia-app/rulesets --input - <<'JSON'
 {
-  "name": "main",
+  "name": "protecao-da-main",
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
   "bypass_actors": [
-    { "actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always" }
+    { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }
   ],
   "rules": [
     { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": false,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [
-          { "context": "Qualidade / Lint, tipos, testes e build" },
-          { "context": "Qualidade / Migrations do Prisma" },
-          { "context": "Changeset" }
-        ]
-      }
-    }
+    { "type": "non_fast_forward" }
   ]
 }
 JSON
 ```
 
-`actor_id: 15368` é o app **GitHub Actions**: é ele que empurra o commit de
-versão e a tag.
+ é o papel **Repository admin** — você. O bot do Actions não é
+coberto por nenhum bypass disponível em repositório pessoal, por isso as regras
+se limitam às duas acima.
 
 Isto é defesa em profundidade, não o portão principal: o `release.yml` roda os
 mesmos checks de qualidade **de novo** antes de tocar em produção. Mesmo sem

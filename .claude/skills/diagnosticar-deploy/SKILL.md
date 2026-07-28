@@ -62,7 +62,26 @@ changesets" no log.
 
 O push da tag usa o `GITHUB_TOKEN` padrão, que **por design não dispara novos
 workflows** — é isso que evita loop infinito de release. Se um dia alguém trocar
-por um PAT, o loop volta.
+por um PAT, o loop volta (o `[skip ci]` na mensagem do commit existe para isso).
+
+## "O release falhou ao empurrar o commit de versão"
+
+Erro `GH013: Repository rule violations found for refs/heads/main`.
+
+O ruleset da `main` passou a exigir algo que o bot do Actions não consegue
+satisfazer. Em repositório pessoal o bot **não é coberto por nenhum bypass**:
+`Integration` é recusado na criação do ruleset e `RepositoryRole: admin` não se
+aplica a ele. Verificado empiricamente:
+
+| Regras do ruleset               | Push do bot |
+| ------------------------------- | ----------- |
+| `deletion` + `non_fast_forward` | ✅ aceito   |
+| \+ `required_status_checks`     | ❌ recusado |
+| \+ `pull_request`               | ❌ recusado |
+
+O release para **antes** das migrations e do deploy, então produção fica
+intacta. Remova a regra extra do ruleset e re-execute o workflow, ou migre o
+push para um PAT do dono (ver `docs/DEPLOY.md`).
 
 ## "O preview não subiu"
 
