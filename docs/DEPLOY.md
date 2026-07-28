@@ -39,6 +39,30 @@ preview-cleanup.yml — apaga a branch do Neon
 Cada passo depende do anterior: se as migrations falharem, **nada é deployado** e
 produção segue na versão anterior.
 
+## Pull requests do Dependabot
+
+Eles passam por um caminho reduzido: **só o portão de qualidade** (lint, tipos,
+testes, build e migrations). O preview e o check de changeset são pulados de
+propósito.
+
+O motivo é o mesmo dos dois: o Dependabot roda com um cofre de secrets separado
+("Dependabot secrets"). Os secrets do Actions — `NEON_API_KEY`, `VERCEL_TOKEN` —
+chegam **vazios** nesses PRs, e o `preview.yml` morre no primeiro passo com
+`Input required and not supplied: api_key`. Espelhar os secrets para o cofre do
+Dependabot resolveria o erro, mas daria a um bump de dependência qualquer acesso
+ao Neon e à Vercel. Não vale: o que precisa ser verificado num bump — que o app
+compila e os testes passam — o `ci.yml` já verifica.
+
+O changeset é dispensado pelo mesmo motivo prático: não há quem o escreva. A
+dependência atualizada entra na release do próximo commit de código.
+
+Ambas as dispensas olham `github.event.pull_request.user.login`, **não** a label
+`skip-changeset`. O `dependabot.yml` pede as labels `dependencies` e
+`skip-changeset`, mas o Dependabot só aplica label que já exista no repositório
+e ignora em silêncio as que faltam — foi assim que esses PRs chegaram sem label
+nenhuma e travaram no check de changeset. As labels existem hoje; se um dia
+sumirem, o CI continua correto.
+
 ## O `vercel.json`
 
 A Vercel valida esse arquivo contra um schema **estrito**: qualquer propriedade

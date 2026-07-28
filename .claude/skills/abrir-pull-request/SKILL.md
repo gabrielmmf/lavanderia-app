@@ -26,8 +26,9 @@ npx changeset status --since=origin/main
 ```
 
 Se não houver, pare e ofereça criar um (`npm run changeset`) — o CI reprova sem.
-Se a mudança realmente não merece versão, use `npx changeset --empty` ou avise
-que o pull request precisará da label `skip-changeset`.
+Se a mudança realmente não merece versão, o caminho é a label `skip-changeset`
+no pull request — `npx changeset --empty` não satisfaz este check (o
+`status --since` só conta changesets que declaram release).
 
 Se houver alteração em `prisma/`, confirme que a migration é aditiva (skill
 `migracao-banco`) e mencione isso na descrição.

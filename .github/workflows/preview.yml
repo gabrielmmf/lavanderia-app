@@ -18,8 +18,16 @@ jobs:
   preview:
     name: Banco + deploy de preview
     runs-on: ubuntu-latest
-    # Pull requests vindos de forks não recebem secrets; nada a fazer.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Sem secrets não há preview possível, e há dois casos em que eles não
+    # chegam aqui:
+    #   - fork: o GitHub não expõe secrets a PR de fora do repositório;
+    #   - Dependabot: PRs dele leem o cofre "Dependabot secrets", não o do
+    #     Actions. Espelhar os secrets para lá daria a um bump de dependência
+    #     acesso ao Neon e à Vercel — não vale o preview. O portão de qualidade
+    #     (lint, tipos, testes e build) continua rodando nesses PRs.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
 
     permissions:
       contents: read

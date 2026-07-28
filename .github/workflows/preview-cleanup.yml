@@ -10,7 +10,11 @@ jobs:
   delete-neon-branch:
     name: Apagar branch do Neon
     runs-on: ubuntu-latest
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Mesma condição do preview.yml: onde não houve branch criada (fork ou
+    # Dependabot, que não enxergam os secrets), não há o que apagar.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
 
     steps:
       - name: Apagar branch preview/pr-${{ github.event.pull_request.number }}
