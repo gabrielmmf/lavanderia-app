@@ -5,7 +5,10 @@ import {
   listAllBookings,
   deleteExpiredBookings,
   BookingLimitError,
+  BookingLockedError,
+  BookingWeeklyLimitError,
 } from "@/lib/booking-service"
+import { errorResponse } from "@/lib/api-errors"
 
 export async function POST(req: Request) {
   try {
@@ -20,12 +23,14 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json(booking)
-  } catch (error: any) {
-    const status = error instanceof BookingLimitError ? 409 : 400
-    return NextResponse.json(
-      { error: error.message, code: error.name },
-      { status }
-    )
+  } catch (error) {
+    let status = 400
+    if (error instanceof BookingLimitError || error instanceof BookingLockedError) {
+      status = 409
+    } else if (error instanceof BookingWeeklyLimitError) {
+      status = 429
+    }
+    return errorResponse(error, status)
   }
 }
 

@@ -1,0 +1,141 @@
+name: Preview
+
+# Cada pull request ganha:
+#   - uma branch isolada no Neon (cópia do banco de produção, sem tocar nele);
+#   - um deploy de preview na Vercel apontando para essa branch.
+#
+# Antes disso o ambiente de preview usava o banco de PRODUÇÃO. Este workflow é
+# o que torna seguro testar migrations e mudanças de dados num pull request.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Banco + deploy de preview
+    runs-on: ubuntu-latest
+    # Pull requests vindos de forks não recebem secrets; nada a fazer.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Criar/reutilizar branch no Neon
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          parent_branch: ${{ vars.NEON_PRODUCTION_BRANCH || 'main' }}
+          branch_name: preview/pr-${{ github.event.pull_request.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          database: neondb
+          role: neondb_owner
+
+      # Roda contra a branch do PR, nunca contra produção. Se a migration
+      # estiver quebrada, o pull request falha aqui — e só aqui.
+      - name: Aplicar migrations na branch do PR
+        run: npm run db:deploy
+        env:
+          DATABASE_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
+
+      - name: Instalar Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Baixar configuração de preview da Vercel
+        run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # `vercel build` lê o env baixado acima; trocamos o DATABASE_URL para que
+      # o build enxergue a branch do PR e não o banco compartilhado.
+      - name: Apontar o build para a branch do Neon
+        run: node .github/scripts/set-env-var.mjs .vercel/.env.preview.local DATABASE_URL "$NEON_POOLED_URL"
+        env:
+          NEON_POOLED_URL: ${{ steps.neon.outputs.db_url_pooled }}
+
+      - name: Build
+        run: vercel build --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy de preview
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt \
+            --env DATABASE_URL="$NEON_POOLED_URL" \
+            --token="$VERCEL_TOKEN")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          NEON_POOLED_URL: ${{ steps.neon.outputs.db_url_pooled }}
+
+      # "Hospedado corretamente" não é o deploy ter terminado, é a página
+      # responder. Falha aqui derruba o pull request.
+      # Extrai o identificador do compute endpoint da branch criada acima, para
+      # que o smoke test possa exigir que o deploy esteja falando com ELA.
+      - name: Determinar o banco esperado
+        id: expected
+        env:
+          NEON_POOLED_URL: ${{ steps.neon.outputs.db_url_pooled }}
+        run: |
+          endpoint=$(node -e "
+            const { hostname } = new URL(process.env.NEON_POOLED_URL);
+            process.stdout.write(hostname.split('.')[0].replace(/-pooler\$/, ''));
+          ")
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+          echo "Preview deve estar conectado a: $endpoint"
+
+      - name: Verificar que o preview responde e usa a branch do PR
+        run: node .github/scripts/smoke-test.mjs "${{ steps.deploy.outputs.url }}"
+        env:
+          # Previews ficam atrás do Deployment Protection da Vercel; sem esse
+          # segredo o smoke test só enxerga a tela de login do SSO.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Provam, a cada PR, que o preview NÃO está lendo o banco de produção.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DB_ENDPOINT: ${{ steps.expected.outputs.endpoint }}
+
+      - name: Comentar a URL no pull request
+        run: node .github/scripts/pr-comment.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          MARKER: preview-deploy
+          BODY: |
+            ### 🚀 Preview pronto
+
+            | | |
+            | --- | --- |
+            | **App** | ${{ steps.deploy.outputs.url }} |
+            | **Banco (Neon)** | `preview/pr-${{ github.event.pull_request.number }}` |
+            | **Commit** | `${{ github.event.pull_request.head.sha }}` |
+
+            As migrations deste pull request já foram aplicadas na branch do Neon.
+            Ela é apagada automaticamente quando o pull request for fechado.

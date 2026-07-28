@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["gru1"],
+  "functions": {
+    "src/app/api/cron/notifications/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "git": {
+    "deploymentEnabled": false
+  }
+}

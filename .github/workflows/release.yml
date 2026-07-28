@@ -1,0 +1,174 @@
+name: Release
+
+# Disparado quando um pull request é mergeado na main.
+#
+# Ordem intencional e não negociável:
+#   qualidade -> versão -> migrations -> deploy -> smoke test
+#
+# As migrations rodam ANTES do deploy porque toda migration deve ser aditiva
+# (expand/contract): o código antigo continua funcionando com o schema novo
+# durante os segundos entre migrar e promover o deploy. Ver docs/DEPLOY.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Nunca dois releases ao mesmo tempo: enfileira em vez de cancelar, para não
+# abandonar um deploy no meio.
+concurrency:
+  group: release-production
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Qualidade
+    uses: ./.github/workflows/quality.yml
+
+  release:
+    name: Versionar e publicar
+    needs: quality
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # commit de versão, tag e GitHub Release
+
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Configurar identidade do git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Consome os changesets pendentes: atualiza package.json e CHANGELOG.md.
+      # Se não houver changeset (ex.: merge só de workflow), segue sem bump.
+      - name: Aplicar changesets
+        id: version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pending=$(find .changeset -name '*.md' ! -name 'README.md' | wc -l)
+          if [ "$pending" -eq 0 ]; then
+            echo "Nenhum changeset pendente — mantendo a versão atual."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          npm run version-packages
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "released=true" >> "$GITHUB_OUTPUT"
+
+          git add -A
+          git commit -m "chore(release): v$version [skip ci]"
+          npx changeset tag
+
+          # Push feito com o GITHUB_TOKEN padrão: por design o GitHub não
+          # dispara novos workflows a partir dele, então não há loop de release.
+          #
+          # Este passo roda ANTES das migrations e do deploy de propósito: se o
+          # ruleset da main recusar o push, nada foi alterado em produção.
+          if ! git push --follow-tags origin HEAD:main; then
+            echo "::error::O push do commit de versão para a main foi recusado."
+            echo ""
+            echo "Quase sempre é o ruleset da main bloqueando o bot do GitHub Actions."
+            echo "Nada foi aplicado em produção — o release parou antes das migrations."
+            echo ""
+            echo "Como resolver (escolha um):"
+            echo "  a) Remova a regra 'required_status_checks' do ruleset da main:"
+            echo "     gh api repos/\$GITHUB_REPOSITORY/rulesets"
+            echo "  b) Ou empurre com um PAT do dono do repositório em vez do GITHUB_TOKEN."
+            echo ""
+            echo "Depois, re-execute este workflow: gh workflow run release.yml"
+            exit 1
+          fi
+
+      - name: Criar GitHub Release
+        if: steps.version.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node .github/scripts/extract-changelog.mjs "$VERSION" > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "Release v$VERSION" > /tmp/release-notes.md
+          fi
+          gh release create "v$VERSION" --title "v$VERSION" --notes-file /tmp/release-notes.md
+
+      # Antes do deploy: o código novo pode depender de colunas novas.
+      - name: Aplicar migrations em produção
+        env:
+          DATABASE_URL_UNPOOLED: ${{ secrets.PRODUCTION_DATABASE_URL_UNPOOLED }}
+        run: |
+          echo "Estado atual das migrations:"
+          npm run db:status || true
+          npm run db:deploy
+
+      - name: Instalar Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Deploy de produção
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Determinar o banco esperado
+        id: expected
+        env:
+          PRODUCTION_DB: ${{ secrets.PRODUCTION_DATABASE_URL_UNPOOLED }}
+        run: |
+          endpoint=$(node -e "
+            const { hostname } = new URL(process.env.PRODUCTION_DB);
+            process.stdout.write(hostname.split('.')[0].replace(/-pooler\$/, ''));
+          ")
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      # Confirma que produção está no banco de produção e com as migrations
+      # deste release aplicadas — não só que o deploy respondeu.
+      - name: Verificar que produção responde e usa o banco certo
+        run: node .github/scripts/smoke-test.mjs "${{ vars.PRODUCTION_URL || steps.deploy.outputs.url }}"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DB_ENDPOINT: ${{ steps.expected.outputs.endpoint }}
+
+      - name: Resumo
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASED: ${{ steps.version.outputs.released }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          {
+            echo "## Release concluído"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Versão | \`v$VERSION\` |"
+            echo "| Bump de versão | $RELEASED |"
+            echo "| Deploy | $URL |"
+            echo "| Produção | ${{ vars.PRODUCTION_URL || 'ver projeto na Vercel' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

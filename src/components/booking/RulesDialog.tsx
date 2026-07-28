@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import {
   Dialog,
   DialogContent,
@@ -10,28 +10,67 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import {
+  BOOKING_WINDOW_DAYS,
+  EFFECTUATION_LEAD_LABEL,
+  MAX_APARTMENT_BOOKINGS,
+  MAX_APARTMENT_BOOKINGS_PER_WINDOW,
+} from "@/lib/booking-rules"
 
 const SESSION_KEY = "lavanderia-rules-seen"
+
+const seenListeners = new Set<() => void>()
+
+function subscribeSeen(onStoreChange: () => void) {
+  seenListeners.add(onStoreChange)
+  return () => {
+    seenListeners.delete(onStoreChange)
+  }
+}
+
+function getSeenSnapshot(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) !== null
+  } catch {
+    return true // storage bloqueado: não force o diálogo
+  }
+}
+
+/** No servidor consideramos "já visto" para não abrir o diálogo antes da hidratação. */
+function getServerSeenSnapshot(): boolean {
+  return true
+}
+
+function markSeen() {
+  try {
+    sessionStorage.setItem(SESSION_KEY, "1")
+  } catch {
+    // ignora storage indisponível
+  }
+  for (const listener of seenListeners) listener()
+}
 
 type RulesDialogProps = {
   trigger?: React.ReactNode
 }
 
 export function RulesDialog({ trigger }: RulesDialogProps) {
-  const [open, setOpen] = useState(false)
+  // `seen` vem do sessionStorage (external store) em vez de setState num efeito.
+  const seen = useSyncExternalStore(subscribeSeen, getSeenSnapshot, getServerSeenSnapshot)
+  const [manuallyOpened, setManuallyOpened] = useState(false)
 
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const seen = sessionStorage.getItem(SESSION_KEY)
-    if (!seen) {
-      setOpen(true)
+  const open = manuallyOpened || !seen
+
+  function setOpen(next: boolean) {
+    if (next) {
+      setManuallyOpened(true)
+      return
     }
-  }, [])
+    setManuallyOpened(false)
+    markSeen()
+  }
 
   function handleClose() {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem(SESSION_KEY, "1")
-    }
     setOpen(false)
   }
 
@@ -47,13 +86,7 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
           {trigger}
         </button>
       )}
-      <Dialog
-        open={open}
-        onOpenChange={(o) => {
-          setOpen(o)
-          if (!o) handleClose()
-        }}
-      >
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Como funciona a Lavanderia</DialogTitle>
@@ -82,7 +115,21 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
             <section>
               <h3 className="font-semibold mb-2">🏠 Limite por apartamento</h3>
               <p className="text-muted-foreground">
-                Cada apartamento pode ter até <strong>2 agendamentos</strong> ao mesmo tempo. Se você tentar agendar um terceiro, o sistema pedirá sua confirmação para <strong>remover o agendamento mais antigo</strong> e criar o novo.
+                Cada apartamento pode ter até <strong>{MAX_APARTMENT_BOOKINGS} agendamentos</strong> ao mesmo tempo. Se você tentar agendar mais um além do limite, o sistema pedirá sua confirmação para <strong>remover o agendamento mais antigo</strong> e criar o novo.
+              </p>
+            </section>
+
+            <section>
+              <h3 className="font-semibold mb-2">📆 Limite semanal</h3>
+              <p className="text-muted-foreground">
+                Cada apartamento pode iniciar no máximo <strong>{MAX_APARTMENT_BOOKINGS_PER_WINDOW} agendamentos a cada {BOOKING_WINDOW_DAYS} dias</strong>, para garantir que todo mundo consiga usar a lavanderia. Se você atingir o limite, o sistema informa a partir de quando o agendamento mais antigo sai da contagem e libera espaço para um novo.
+              </p>
+            </section>
+
+            <section>
+              <h3 className="font-semibold mb-2">🔒 Agendamentos efetivados</h3>
+              <p className="text-muted-foreground">
+                A partir de <strong>{EFFECTUATION_LEAD_LABEL}</strong> antes do início — e enquanto estiver em andamento ou já tiver terminado — um agendamento é considerado <strong>efetivado</strong> e não pode mais ser apagado. Isso evita que alguém apague um agendamento já em uso só para conseguir marcar outro em seguida.
               </p>
             </section>
 

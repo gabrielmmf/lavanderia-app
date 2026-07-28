@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { deleteBooking } from "@/lib/booking-service"
+import { deleteBooking, BookingLockedError, BookingNotFoundError } from "@/lib/booking-service"
+import { errorResponse } from "@/lib/api-errors"
 
 export async function DELETE(
   _req: Request,
@@ -9,10 +10,13 @@ export async function DELETE(
     const { id } = await params
     await deleteBooking(id)
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: error.message === "Agendamento não encontrado" ? 404 : 400 }
-    )
+  } catch (error) {
+    let status = 400
+    if (error instanceof BookingNotFoundError) {
+      status = 404
+    } else if (error instanceof BookingLockedError) {
+      status = 409
+    }
+    return errorResponse(error, status)
   }
 }

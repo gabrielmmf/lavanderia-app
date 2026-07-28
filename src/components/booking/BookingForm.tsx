@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,27 +16,17 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { DateTimePicker } from "./DateTimePicker"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
+import { MACHINE_NUMBERS, MAX_APARTMENT_BOOKINGS } from "@/lib/booking-rules"
+import {
+    DEFAULT_DURATION_MINUTES,
+    DURATION_OPTIONS,
+    computeEnd,
+    getDefaultStart,
+} from "@/lib/booking-time"
 
-function getDefaultStart(): Date {
-    const d = new Date()
-    const now = d.getTime()
-    d.setHours(8, 0, 0, 0)
-    if (d.getTime() <= now) {
-        d.setTime(now)
-        const m = d.getMinutes()
-        d.setMinutes(m <= 30 ? 30 : 60, 0, 0)
-    }
-    return d
-}
-
-function getDefaultEnd(): Date {
-    const start = getDefaultStart()
-    const d = new Date(start)
-    d.setMinutes(d.getMinutes() + 120, 0, 0)
-    return d
-}
-
-const MACHINES = [1, 2, 3] as const
+const MACHINES = MACHINE_NUMBERS
 
 export function BookingForm({
     apartment,
@@ -48,8 +38,11 @@ export function BookingForm({
     onCreated: () => void
 }) {
     const [machine, setMachine] = useState<number>(1)
-    const [start, setStart] = useState<Date>(getDefaultStart)
-    const [end, setEnd] = useState<Date>(getDefaultEnd)
+    const [start, setStart] = useState<Date>(() => getDefaultStart())
+    const [duration, setDuration] = useState<number>(DEFAULT_DURATION_MINUTES)
+
+    const end = useMemo(() => computeEnd(start, duration), [start, duration])
+
     const [loading, setLoading] = useState(false)
     const [showReplaceConfirm, setShowReplaceConfirm] = useState(false)
     const [pendingData, setPendingData] = useState<{
@@ -58,20 +51,6 @@ export function BookingForm({
         startTime: string
         endTime: string
     } | null>(null)
-
-    const MAX_HOURS = 8
-
-    useEffect(() => {
-        if (end <= start) {
-            const next = new Date(start)
-            next.setMinutes(next.getMinutes() + 30)
-            setEnd(next)
-        } else {
-            const maxEnd = new Date(start)
-            maxEnd.setHours(maxEnd.getHours() + MAX_HOURS, 0, 0, 0)
-            if (end > maxEnd) setEnd(maxEnd)
-        }
-    }, [start, end])
 
     async function doSubmit(payload: {
         apartmentNumber: string
@@ -105,9 +84,6 @@ export function BookingForm({
 
         setPendingData(null)
         setShowReplaceConfirm(false)
-        setMachine(1)
-        setStart(getDefaultStart())
-        setEnd(getDefaultEnd())
         onCreated()
     }
 
@@ -177,13 +153,23 @@ export function BookingForm({
                     </div>
 
                     <div className="space-y-2">
-                        <Label>Fim</Label>
-                        <DateTimePicker
-                            value={end}
-                            onChange={setEnd}
-                            min={start}
-                            placeholder="Selecione data e hora de fim"
-                        />
+                        <Label>Duração</Label>
+                        <select
+                            value={duration}
+                            onChange={e => setDuration(Number(e.target.value))}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                            {DURATION_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Término previsto</Label>
+                        <div className="text-sm p-2 bg-muted rounded-md border">
+                            {format(end, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                        </div>
                     </div>
 
                     <Button className="w-full" disabled={loading}>
@@ -196,7 +182,7 @@ export function BookingForm({
                         <AlertDialogHeader>
                             <AlertDialogTitle>Limite de agendamentos</AlertDialogTitle>
                             <AlertDialogDescription>
-                                O apartamento {apartment} já possui 2 agendamentos. O agendamento mais antigo será removido para permitir este novo. Deseja continuar?
+                                O apartamento {apartment} já possui {MAX_APARTMENT_BOOKINGS} agendamentos. O agendamento mais antigo será removido para permitir este novo. Deseja continuar?
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
