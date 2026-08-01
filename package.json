@@ -54,7 +54,7 @@
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
-    "jsdom": "^30.0.0",
+    "jsdom": "^30.0.1",
     "prisma": "^7.9.1",
     "shadcn": "^3.8.5",
     "tailwindcss": "^4",
