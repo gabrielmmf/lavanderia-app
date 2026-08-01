@@ -22,15 +22,18 @@ export function isValidMachineNumber(value: number): value is MachineNumber {
 }
 
 /**
- * Minutos de antecedência a partir dos quais um agendamento é considerado
+ * Minutos **após o início** a partir dos quais um agendamento é considerado
  * "efetivado": passa a contar como uso e o morador não pode mais apagá-lo.
- * Isso fecha a brecha de apagar um agendamento em andamento (ou prestes a
- * começar) só para conseguir marcar outro em seguida.
+ *
+ * A contagem é a partir do início, e não antes dele, para que o morador ainda
+ * possa desistir de um horário que não vai usar — inclusive depois de a hora
+ * chegar, já que atrasar alguns minutos é normal. Passada essa folga, presume-se
+ * que a máquina foi de fato ocupada.
  */
-export const EFFECTUATION_LEAD_MINUTES = 60
+export const EFFECTUATION_DELAY_MINUTES = 60
 
 /**
- * Descrição legível de `EFFECTUATION_LEAD_MINUTES`, para textos de UI e
+ * Descrição legível de `EFFECTUATION_DELAY_MINUTES`, para textos de UI e
  * mensagens de erro (ex.: "1 hora" em vez de "60 minutos").
  */
 export function formatLeadMinutes(minutes: number): string {
@@ -41,7 +44,7 @@ export function formatLeadMinutes(minutes: number): string {
   return `${minutes} minutos`
 }
 
-export const EFFECTUATION_LEAD_LABEL = formatLeadMinutes(EFFECTUATION_LEAD_MINUTES)
+export const EFFECTUATION_DELAY_LABEL = formatLeadMinutes(EFFECTUATION_DELAY_MINUTES)
 
 /**
  * Tamanho da janela, em dias, usada para o limite semanal de agendamentos
@@ -64,13 +67,22 @@ export const MAX_APARTMENT_BOOKINGS_PER_WINDOW = 4
 export const BOOKING_RETENTION_DAYS = BOOKING_WINDOW_DAYS
 
 /**
- * Um agendamento é "efetivado" quando falta menos de
- * `EFFECTUATION_LEAD_MINUTES` para o início — o que também cobre um
- * agendamento em andamento ou já concluído, já que a diferença fica negativa.
+ * Um agendamento é "efetivado" quando já se passaram
+ * `EFFECTUATION_DELAY_MINUTES` desde o início — ou quando ele já terminou,
+ * ainda que tenha durado menos que essa folga.
+ *
+ * A segunda condição não é detalhe: sem ela, um agendamento curto (de meia
+ * hora, digamos) poderia ser apagado depois de a máquina já ter sido usada, o
+ * que apagaria o registro do limite semanal e devolveria a vaga de graça.
  */
-export function isBookingEffectuated(startTime: Date, now: Date = new Date()): boolean {
-  const msUntilStart = startTime.getTime() - now.getTime()
-  return msUntilStart < EFFECTUATION_LEAD_MINUTES * 60 * 1000
+export function isBookingEffectuated(
+  startTime: Date,
+  endTime: Date,
+  now: Date = new Date()
+): boolean {
+  const msSinceStart = now.getTime() - startTime.getTime()
+  if (msSinceStart >= EFFECTUATION_DELAY_MINUTES * 60 * 1000) return true
+  return now.getTime() >= endTime.getTime()
 }
 
 /** Lançado quando o apartamento já atingiu o limite de agendamentos simultâneos. */

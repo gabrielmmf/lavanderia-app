@@ -232,6 +232,39 @@ curl -s https://lavanderia-app-two.vercel.app/api/health | jq .notifications
 
 O smoke test do release imprime esse mesmo estado ao final de cada deploy.
 
+### As chaves VAPID não podem ser `sensitive` na Vercel
+
+Esta é a armadilha que manteve as notificações mortas em produção, e ela não
+dá nenhum sinal: o deploy fica verde e o app sobe normalmente.
+
+A Vercel tem dois tipos de variável encriptada. Uma variável `sensitive` **não
+pode ser lida de volta** — nem pela API, nem pelo CLI. E o deploy deste projeto
+é construído no runner, não na Vercel:
+
+```
+vercel pull    →  grava .vercel/.env.<ambiente>.local
+vercel build   →  lê esse arquivo e inlina NEXT_PUBLIC_* no bundle
+vercel deploy --prebuilt
+```
+
+Se a variável for `sensitive`, o `pull` escreve a string literal
+`[SENSITIVE]` no arquivo, e o `build` assa esse texto no bundle como se fosse a
+chave. O resultado é um `NEXT_PUBLIC_VAPID_PUBLIC_KEY` de 11 caracteres
+servido a todo navegador, e um `notifications.configured: false` no health.
+
+Confira o tipo com:
+
+```bash
+vercel env ls production        # a coluna mostra Encrypted vs Sensitive
+```
+
+As três variáveis de push precisam ser **`encrypted`**. Marcar a chave pública
+como secreta é contradição em termos: ela é servida ao navegador por definição.
+A partir de agora o smoke test reprova o deploy nesse estado, então o erro não
+volta calado.
+
+### O `CRON_SECRET` precisa bater entre Vercel e GitHub
+
 O `CRON_SECRET` da Vercel e o secret de mesmo nome no GitHub **têm que ser o
 mesmo valor** — é ele que o `cron-notifications.yml` envia no header. Divergiu,
 o endpoint responde 401.
@@ -345,10 +378,54 @@ npx vercel ls lavanderia-app
 gh release list --limit 5
 ```
 
-## Rodar o cron manualmente
+## Quem dispara as notificações
+
+O envio é *pull*: alguém precisa chamar `GET /api/cron/notifications` com o
+`CRON_SECRET` no header. Quem chama são duas fontes, de propósito.
+
+### 1. cron-job.org — o agendador de verdade
+
+O `schedule` do GitHub Actions **não é pontual**. Em agosto de 2026 este
+repositório recebia uma execução a cada 1 a 3 horas, apesar do `*/5 * * * *`.
+É comportamento conhecido: o GitHub desprioriza `schedule` em repositórios de
+pouco tráfego, e não há configuração que resolva. Para um aviso de "faltam 15
+minutos", isso é inútil.
+
+O agendador pontual é um job gratuito no [cron-job.org](https://cron-job.org):
+
+| Campo | Valor |
+| ----- | ----- |
+| URL | `https://lavanderia-app-two.vercel.app/api/cron/notifications` |
+| Schedule | a cada 5 minutos |
+| Header | `Authorization: Bearer <CRON_SECRET>` |
+
+O `CRON_SECRET` é o mesmo valor que está na Vercel e no secret do GitHub.
+Qualquer agendador HTTP serve — o endpoint aceita GET e POST e é idempotente.
+
+### 2. GitHub Actions — rede de segurança
+
+O `cron-notifications.yml` continua ativo. Ele não garante pontualidade, mas
+garante que nada fique parado para sempre se o agendador externo cair. Como o
+ciclo tolera atraso (ver abaixo), um disparo tardio ainda entrega o que ficou
+para trás.
+
+### Por que o atraso não perde mais a notificação
+
+O ciclo busca de `now - NOTIFICATION_GRACE_MINUTES` até
+`now + NOTIFICATION_LEAD_MINUTES`. A borda inferior é o conserto: antes a busca
+começava em `now`, então um agendamento cuja hora do aviso caísse entre dois
+ciclos saía da janela com `startNotified` ainda `false` e **nunca mais** era
+notificado. O texto da mensagem é calculado na hora do envio, então um aviso
+atrasado diz "já começou" em vez de mentir "começa em 15 minutos".
+
+### Rodar à mão
 
 ```bash
-gh workflow run cron-notifications.yml
+gh workflow run cron-notifications.yml            # via Actions
+
+curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  https://lavanderia-app-two.vercel.app/api/cron/notifications
+# {"success":true,"sent":0,"failed":0,"pruned":0,"bookingsMarked":0}
 ```
 
 ## Rollback

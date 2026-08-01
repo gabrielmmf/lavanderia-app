@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatTimeBR, formatDateBR } from "@/lib/date-utils"
 import { Trash2, Lock } from "lucide-react"
-import { EFFECTUATION_LEAD_LABEL, isBookingEffectuated } from "@/lib/booking-rules"
+import { EFFECTUATION_DELAY_LABEL, isBookingEffectuated } from "@/lib/booking-rules"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -34,10 +34,10 @@ export function BookingCard({ booking, compact, onDelete }: BookingCardProps) {
         setShowConfirm(false)
     }
 
-    const effectuated = isBookingEffectuated(new Date(booking.startTime))
+    const effectuated = isBookingEffectuated(new Date(booking.startTime), new Date(booking.endTime))
     const canDelete = booking.id && onDelete && !effectuated
     const locked = booking.id && onDelete && effectuated
-    const lockedLabel = `Agendamento já efetivado — começa em menos de ${EFFECTUATION_LEAD_LABEL} (ou já começou) — e não pode mais ser apagado`
+    const lockedLabel = `Agendamento já efetivado — começou há mais de ${EFFECTUATION_DELAY_LABEL} (ou já terminou) — e não pode mais ser apagado`
 
     if (compact) {
         return (

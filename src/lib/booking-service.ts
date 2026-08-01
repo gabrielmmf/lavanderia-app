@@ -8,7 +8,7 @@ import {
   BookingWeeklyLimitError,
   BOOKING_RETENTION_DAYS,
   BOOKING_WINDOW_DAYS,
-  EFFECTUATION_LEAD_LABEL,
+  EFFECTUATION_DELAY_LABEL,
   MAX_APARTMENT_BOOKINGS,
   MAX_APARTMENT_BOOKINGS_PER_WINDOW,
   MAX_BOOKING_HOURS,
@@ -142,7 +142,7 @@ export async function createBooking(data: CreateBookingInput) {
         orderBy: { startTime: "asc" },
       })
       if (oldest) {
-        if (isBookingEffectuated(oldest.startTime, now)) {
+        if (isBookingEffectuated(oldest.startTime, oldest.endTime, now)) {
           throw new BookingLockedError(
             `O agendamento mais antigo do apartamento ${data.apartmentNumber} já foi efetivado e não pode ser substituído automaticamente. Aguarde ele terminar ou escolha apagar outro agendamento antes de tentar de novo.`
           )
@@ -199,9 +199,9 @@ export async function deleteBooking(id: string) {
   if (!booking) {
     throw new BookingNotFoundError()
   }
-  if (isBookingEffectuated(booking.startTime)) {
+  if (isBookingEffectuated(booking.startTime, booking.endTime)) {
     throw new BookingLockedError(
-      `Este agendamento já foi efetivado — começa em menos de ${EFFECTUATION_LEAD_LABEL} (ou já começou) — e não pode mais ser apagado.`
+      `Este agendamento já foi efetivado — começou há mais de ${EFFECTUATION_DELAY_LABEL} (ou já terminou) — e não pode mais ser apagado.`
     )
   }
   return prisma.booking.delete({ where: { id } })

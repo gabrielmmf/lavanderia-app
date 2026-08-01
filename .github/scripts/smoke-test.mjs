@@ -185,32 +185,40 @@ async function checkDatabaseIdentity() {
     return false
   }
 
-  reportNotificationsConfig(body)
-
-  return true
+  return checkNotificationsConfig(body)
 }
 
 /**
- * Avisa quando o deploy subiu sem Web Push utilizável.
+ * Reprova o deploy que subiu sem Web Push utilizável.
  *
- * Não reprova o smoke test de propósito: o app sem VAPID funciona normalmente,
- * só fica sem notificações, e travar o release por causa de uma variável de
- * ambiente que o CI não controla deixaria o deploy pela metade. Mas o aviso
- * precisa existir — foi assim que uma chave inválida ficou meses em produção,
- * visível só para quem clicasse no botão de ativar.
+ * Isto era só um aviso, com o argumento de que o app sem VAPID funciona
+ * normalmente e de que o CI não controlava essa variável. A segunda parte se
+ * provou falsa, e de um jeito caro: quem produzia a chave inválida era o
+ * próprio CI. Uma variável marcada como `sensitive` na Vercel não pode ser
+ * lida de volta, então o `vercel pull` deste workflow gravava a string
+ * "[SENSITIVE]" no env local e o `vercel build` assava esse literal no bundle
+ * como se fosse a chave. Todo deploy saía com as notificações mortas, e o
+ * aviso passava despercebido no meio do log de um job verde.
+ *
+ * Enquanto o deploy for construído aqui (`vercel build` + `--prebuilt`), as
+ * chaves precisam ser legíveis pelo CI: `encrypted`, nunca `sensitive`.
  */
-function reportNotificationsConfig(body) {
+function checkNotificationsConfig(body) {
   if (body?.notifications?.configured === true) {
     console.log("✓ notificações — chaves VAPID válidas neste deploy")
-    return
+    return true
   }
 
-  console.warn(
-    "⚠ notificações DESATIVADAS neste deploy: as chaves VAPID estão ausentes ou inválidas.\n" +
-      "  Confira NEXT_PUBLIC_VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY na Vercel.\n" +
-      "  A pública tem 87 caracteres base64url — se houver placeholder, aspas ou\n" +
-      "  espaço colado no valor, o navegador recusa a inscrição."
+  console.error(
+    "✗ NOTIFICAÇÕES DESATIVADAS neste deploy: as chaves VAPID estão ausentes ou inválidas.\n" +
+      "  A pública tem 87 caracteres base64url. Se ela estiver marcada como\n" +
+      "  `sensitive` na Vercel, o `vercel pull` devolve \"[SENSITIVE]\" e o build\n" +
+      "  assa esse texto no lugar da chave — foi exatamente o que aconteceu antes.\n" +
+      "  Confira o tipo com:\n" +
+      "    vercel env ls production\n" +
+      "  e recrie NEXT_PUBLIC_VAPID_PUBLIC_KEY como `encrypted`."
   )
+  return false
 }
 
 console.log(
