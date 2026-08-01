@@ -69,18 +69,23 @@ prisma/
 - Máximo de **4 agendamentos por apartamento a cada 7 dias**
   (`BOOKING_WINDOW_DAYS` / `MAX_APARTMENT_BOOKINGS_PER_WINDOW`), para coibir
   uso diário abusivo das máquinas.
-- Um agendamento é considerado **efetivado** a partir de **1 hora antes do
-  início** (`EFFECTUATION_LEAD_MINUTES`) — e enquanto estiver em andamento ou
-  já tiver terminado. A partir daí o morador não pode mais apagá-lo: isso
-  fecha a brecha de apagar um agendamento em uso só para marcar outro em
-  seguida.
+- Um agendamento é considerado **efetivado** a partir de **1 hora depois do
+  início** (`EFFECTUATION_DELAY_MINUTES`) — ou assim que termina, mesmo que
+  tenha durado menos que isso. A partir daí o morador não pode mais apagá-lo.
+  A contagem é depois do início, e não antes, para que dê tempo de desistir de
+  um horário que não vai usar, inclusive atrasando alguns minutos. A cláusula
+  do término não é detalhe: sem ela, uma reserva curta poderia ser usada e
+  apagada em seguida, devolvendo a vaga no limite semanal de graça.
 - **3 máquinas** (1, 2, 3); a mesma máquina não pode ter horários sobrepostos.
 - Agendamentos encerrados há mais de **7 dias** (`BOOKING_RETENTION_DAYS`) são
   removidos automaticamente. Esse prazo é igual ao da janela do limite
   semanal de propósito: se a limpeza apagasse os registros antes, o limite
   semanal deixaria de enxergar o uso passado.
 - Notificações são enviadas **15 minutos** antes do início e do término
-  (`NOTIFICATION_LEAD_MINUTES`).
+  (`NOTIFICATION_LEAD_MINUTES`), e ainda são entregues, atrasadas e com o texto
+  ajustado, por até **1 hora** depois do momento previsto
+  (`NOTIFICATION_GRACE_MINUTES`) — o agendador não é pontual, ver
+  `docs/DEPLOY.md`.
 
 Esses números vivem em `src/lib/booking-rules.ts` e
 `src/lib/notifications-config.ts`. Mudou o número, mude no arquivo — nunca

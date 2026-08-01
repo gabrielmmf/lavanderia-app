@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   BOOKING_WINDOW_DAYS,
-  EFFECTUATION_LEAD_LABEL,
+  EFFECTUATION_DELAY_LABEL,
   MAX_APARTMENT_BOOKINGS,
   MAX_APARTMENT_BOOKINGS_PER_WINDOW,
 } from "@/lib/booking-rules"
@@ -129,7 +129,7 @@ export function RulesDialog({ trigger }: RulesDialogProps) {
             <section>
               <h3 className="font-semibold mb-2">🔒 Agendamentos efetivados</h3>
               <p className="text-muted-foreground">
-                A partir de <strong>{EFFECTUATION_LEAD_LABEL}</strong> antes do início — e enquanto estiver em andamento ou já tiver terminado — um agendamento é considerado <strong>efetivado</strong> e não pode mais ser apagado. Isso evita que alguém apague um agendamento já em uso só para conseguir marcar outro em seguida.
+                Você pode apagar um agendamento até <strong>{EFFECTUATION_DELAY_LABEL}</strong> depois da hora de início — dá tempo de desistir, mesmo se atrasar um pouco. Passado esse prazo, ou quando o horário termina, o agendamento é considerado <strong>efetivado</strong> e não pode mais ser apagado. Isso evita que alguém use a máquina e apague o registro para escapar do limite semanal.
               </p>
             </section>
 

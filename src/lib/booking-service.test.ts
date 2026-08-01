@@ -132,7 +132,11 @@ describe("createBooking", () => {
     prismaMock.booking.count.mockResolvedValue(2)
     prismaMock.booking.findFirst
       .mockResolvedValueOnce(null) // sem conflito de horário
-      .mockResolvedValueOnce({ id: "antigo", startTime: new Date(NOW.getTime() + 2 * DAY_MS) }) // o mais antigo, ainda longe do início
+      .mockResolvedValueOnce({
+        id: "antigo",
+        startTime: new Date(NOW.getTime() + 2 * DAY_MS), // ainda longe do início
+        endTime: new Date(NOW.getTime() + 2 * DAY_MS + 2 * 60 * 60 * 1000),
+      })
     prismaMock.booking.create.mockResolvedValue({ id: "novo" })
 
     await expect(createBooking(input({ replaceOldest: true }))).resolves.toEqual({ id: "novo" })
@@ -143,7 +147,11 @@ describe("createBooking", () => {
     prismaMock.booking.count.mockResolvedValue(2)
     prismaMock.booking.findFirst
       .mockResolvedValueOnce(null) // sem conflito de horário
-      .mockResolvedValueOnce({ id: "antigo", startTime: new Date(NOW.getTime() + 30 * 60 * 1000) }) // começa em 30min
+      .mockResolvedValueOnce({
+        id: "antigo",
+        startTime: new Date(NOW.getTime() - 90 * 60 * 1000), // começou há 1h30
+        endTime: new Date(NOW.getTime() + 60 * 60 * 1000), // e ainda está em curso
+      })
 
     await expect(createBooking(input({ replaceOldest: true }))).rejects.toBeInstanceOf(
       BookingLockedError
@@ -196,6 +204,31 @@ describe("deleteBooking", () => {
     prismaMock.booking.findUnique.mockResolvedValue({
       id: "b1",
       startTime: new Date(NOW.getTime() + 2 * DAY_MS),
+      endTime: new Date(NOW.getTime() + 2 * DAY_MS + 2 * 60 * 60 * 1000),
+    })
+    prismaMock.booking.delete.mockResolvedValue({ id: "b1" })
+
+    await expect(deleteBooking("b1")).resolves.toEqual({ id: "b1" })
+  })
+
+  // Regra nova: a consolidação passou a contar 1h DEPOIS do início, então
+  // desistir de um horário que está prestes a começar voltou a ser permitido.
+  it("remove um agendamento prestes a começar", async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({
+      id: "b1",
+      startTime: new Date(NOW.getTime() + 30 * 60 * 1000), // começa em 30min
+      endTime: new Date(NOW.getTime() + 3 * 60 * 60 * 1000),
+    })
+    prismaMock.booking.delete.mockResolvedValue({ id: "b1" })
+
+    await expect(deleteBooking("b1")).resolves.toEqual({ id: "b1" })
+  })
+
+  it("remove um agendamento recém-iniciado, dentro da folga", async () => {
+    prismaMock.booking.findUnique.mockResolvedValue({
+      id: "b1",
+      startTime: new Date(NOW.getTime() - 30 * 60 * 1000), // começou há 30min
+      endTime: new Date(NOW.getTime() + 90 * 60 * 1000),
     })
     prismaMock.booking.delete.mockResolvedValue({ id: "b1" })
 
@@ -209,20 +242,23 @@ describe("deleteBooking", () => {
     expect(prismaMock.booking.delete).not.toHaveBeenCalled()
   })
 
-  it("lança BookingLockedError quando o agendamento já foi efetivado", async () => {
+  it("lança BookingLockedError passada a folga desde o início", async () => {
     prismaMock.booking.findUnique.mockResolvedValue({
       id: "b1",
-      startTime: new Date(NOW.getTime() + 30 * 60 * 1000), // começa em 30min
+      startTime: new Date(NOW.getTime() - 90 * 60 * 1000), // começou há 1h30
+      endTime: new Date(NOW.getTime() + 60 * 60 * 1000),
     })
 
     await expect(deleteBooking("b1")).rejects.toBeInstanceOf(BookingLockedError)
     expect(prismaMock.booking.delete).not.toHaveBeenCalled()
   })
 
-  it("lança BookingLockedError para agendamento já em andamento ou concluído", async () => {
+  // Fecha a brecha de lavar e apagar o registro para não gastar a cota semanal.
+  it("lança BookingLockedError para agendamento curto que já terminou", async () => {
     prismaMock.booking.findUnique.mockResolvedValue({
       id: "b1",
-      startTime: new Date(NOW.getTime() - 60 * 60 * 1000), // começou há 1h
+      startTime: new Date(NOW.getTime() - 45 * 60 * 1000), // começou há 45min
+      endTime: new Date(NOW.getTime() - 15 * 60 * 1000), // e terminou há 15min
     })
 
     await expect(deleteBooking("b1")).rejects.toBeInstanceOf(BookingLockedError)

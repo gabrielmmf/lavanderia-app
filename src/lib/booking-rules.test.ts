@@ -6,7 +6,7 @@ import {
   BookingValidationError,
   BookingWeeklyLimitError,
   BOOKING_WINDOW_DAYS,
-  EFFECTUATION_LEAD_MINUTES,
+  EFFECTUATION_DELAY_MINUTES,
   MACHINE_NUMBERS,
   MAX_APARTMENT_BOOKINGS,
   MAX_APARTMENT_BOOKINGS_PER_WINDOW,
@@ -21,7 +21,7 @@ describe("constantes de regra", () => {
     expect(MAX_BOOKING_HOURS).toBe(8)
     expect(MAX_APARTMENT_BOOKINGS).toBe(2)
     expect(MACHINE_NUMBERS).toEqual([1, 2, 3])
-    expect(EFFECTUATION_LEAD_MINUTES).toBe(60)
+    expect(EFFECTUATION_DELAY_MINUTES).toBe(60)
     expect(BOOKING_WINDOW_DAYS).toBe(7)
     expect(MAX_APARTMENT_BOOKINGS_PER_WINDOW).toBe(4)
   })
@@ -30,24 +30,49 @@ describe("constantes de regra", () => {
 describe("isBookingEffectuated", () => {
   const now = new Date(2026, 6, 27, 10, 0)
 
-  it("não considera efetivado quando falta mais que o prazo de antecedência", () => {
+  /** Agendamento longo o bastante para não terminar antes do prazo de folga. */
+  function longo(startTime: Date) {
+    return new Date(startTime.getTime() + 4 * 60 * 60 * 1000)
+  }
+
+  it("não considera efetivado um agendamento ainda no futuro", () => {
     const startTime = new Date(2026, 6, 27, 12, 0) // 2h depois
-    expect(isBookingEffectuated(startTime, now)).toBe(false)
+    expect(isBookingEffectuated(startTime, longo(startTime), now)).toBe(false)
   })
 
-  it("considera efetivado quando falta menos que o prazo de antecedência", () => {
+  // A regra mudou: antes um agendamento prestes a começar já era efetivado.
+  // Agora o morador ainda pode desistir até depois de a hora chegar.
+  it("não considera efetivado um agendamento prestes a começar", () => {
     const startTime = new Date(2026, 6, 27, 10, 30) // 30min depois
-    expect(isBookingEffectuated(startTime, now)).toBe(true)
+    expect(isBookingEffectuated(startTime, longo(startTime), now)).toBe(false)
   })
 
-  it("considera efetivado um agendamento já em andamento ou concluído", () => {
-    const startTime = new Date(2026, 6, 27, 9, 0) // 1h antes
-    expect(isBookingEffectuated(startTime, now)).toBe(true)
+  it("não considera efetivado um agendamento recém-iniciado", () => {
+    const startTime = new Date(2026, 6, 27, 9, 30) // começou há 30min
+    expect(isBookingEffectuated(startTime, longo(startTime), now)).toBe(false)
   })
 
-  it("é o limite exato: falta exatamente o prazo de antecedência ainda não é efetivado", () => {
-    const startTime = new Date(now.getTime() + EFFECTUATION_LEAD_MINUTES * 60 * 1000)
-    expect(isBookingEffectuated(startTime, now)).toBe(false)
+  it("considera efetivado depois do prazo de folga a partir do início", () => {
+    const startTime = new Date(2026, 6, 27, 8, 30) // começou há 1h30
+    expect(isBookingEffectuated(startTime, longo(startTime), now)).toBe(true)
+  })
+
+  it("é o limite exato: exatamente o prazo de folga já é efetivado", () => {
+    const startTime = new Date(now.getTime() - EFFECTUATION_DELAY_MINUTES * 60 * 1000)
+    expect(isBookingEffectuated(startTime, longo(startTime), now)).toBe(true)
+  })
+
+  // Sem esta regra, uma reserva curta poderia ser usada e apagada em seguida,
+  // devolvendo a vaga no limite semanal de graça.
+  it("considera efetivado um agendamento curto que já terminou", () => {
+    const startTime = new Date(2026, 6, 27, 9, 15) // começou há 45min
+    const endTime = new Date(2026, 6, 27, 9, 45) // e já terminou
+    expect(isBookingEffectuated(startTime, endTime, now)).toBe(true)
+  })
+
+  it("considera efetivado no instante exato do término", () => {
+    const startTime = new Date(2026, 6, 27, 9, 30)
+    expect(isBookingEffectuated(startTime, now, now)).toBe(true)
   })
 })
 

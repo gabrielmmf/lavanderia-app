@@ -1,6 +1,12 @@
 import webPush, { type PushSubscription as WebPushSubscription } from "web-push"
 import { prisma } from "./prisma"
-import { NOTIFICATION_LEAD_MINUTES, normalizeVapidPublicKey } from "./notifications-config"
+import {
+  NOTIFICATION_GRACE_MINUTES,
+  NOTIFICATION_LEAD_MINUTES,
+  endNotificationBody,
+  normalizeVapidPublicKey,
+  startNotificationBody,
+} from "./notifications-config"
 
 /** Assunto exigido pelo protocolo VAPID (mailto: ou URL). */
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT ?? "mailto:admin@lavanderia.app"
@@ -34,6 +40,16 @@ export function ensureVapidConfigured(): boolean {
 }
 
 export type NotificationRunResult = {
+  /**
+   * Se o ciclo chegou a rodar. `false` significa VAPID ausente ou inválido —
+   * nada foi consultado nem enviado.
+   *
+   * Existe porque o contrário era indistinguível de sucesso: sem VAPID o ciclo
+   * devolvia `sent: 0` igualzinho a uma execução em que não havia nada para
+   * enviar, e o cron passou dias reportando "success" com as notificações
+   * completamente desligadas em produção.
+   */
+  vapidConfigured: boolean
   /** Notificações entregues com sucesso. */
   sent: number
   /** Notificações que falharam na entrega. */
@@ -67,21 +83,37 @@ function isGoneStatus(reason: unknown): boolean {
 export async function runNotificationCycle(
   now: Date = new Date()
 ): Promise<NotificationRunResult> {
-  const empty: NotificationRunResult = { sent: 0, failed: 0, pruned: 0, bookingsMarked: 0 }
+  const empty: NotificationRunResult = {
+    vapidConfigured: true,
+    sent: 0,
+    failed: 0,
+    pruned: 0,
+    bookingsMarked: 0,
+  }
 
   if (!ensureVapidConfigured()) {
     console.warn("VAPID não configurado — ciclo de notificações ignorado.")
-    return empty
+    return { ...empty, vapidConfigured: false }
   }
 
   const horizon = new Date(now.getTime() + NOTIFICATION_LEAD_MINUTES * 60_000)
+  // Limite inferior da busca. O agendador não é pontual — se o ciclo anterior
+  // rodou há uma hora, o aviso que venceu no meio do caminho ainda está aqui
+  // para ser entregue. Antes, a busca começava em `now` e o agendamento
+  // simplesmente vazava da janela com o flag `false`, sem nunca ser notificado.
+  const graceStart = new Date(now.getTime() - NOTIFICATION_GRACE_MINUTES * 60_000)
 
   const [upcomingStarts, upcomingEnds] = await Promise.all([
     prisma.booking.findMany({
-      where: { startNotified: false, startTime: { gt: now, lte: horizon } },
+      where: {
+        startNotified: false,
+        startTime: { gte: graceStart, lte: horizon },
+        // Avisar do início de uma reserva que já terminou não serve para nada.
+        endTime: { gt: now },
+      },
     }),
     prisma.booking.findMany({
-      where: { endNotified: false, endTime: { gt: now, lte: horizon } },
+      where: { endNotified: false, endTime: { gte: graceStart, lte: horizon } },
     }),
   ])
 
@@ -104,8 +136,14 @@ export async function runNotificationCycle(
 
   const pending: PendingPush[] = []
 
+  /** Minutos que ainda faltam para `target`, negativo se já passou. */
+  function minutesUntil(target: Date): number {
+    return Math.round((target.getTime() - now.getTime()) / 60_000)
+  }
+
   function enqueue(
     booking: { id: string; apartmentNumber: string; machineNumber: number },
+    kind: "start" | "end",
     title: string,
     body: string
   ) {
@@ -117,7 +155,10 @@ export async function runNotificationCycle(
           endpoint: subscription.endpoint,
           keys: { p256dh: subscription.p256dh, auth: subscription.auth },
         },
-        payload: JSON.stringify({ title, body, url: "/" }),
+        // A `tag` precisa ser única por aviso: com uma tag fixa o navegador
+        // trata o aviso de término como substituição do de início e o exibe
+        // sem som nem vibração — na prática, o segundo aviso passa batido.
+        payload: JSON.stringify({ title, body, url: "/", tag: `${booking.id}:${kind}` }),
       })
     }
   }
@@ -125,15 +166,17 @@ export async function runNotificationCycle(
   for (const booking of upcomingStarts) {
     enqueue(
       booking,
+      "start",
       "Lavanderia: seu horário vai começar",
-      `Sua reserva na máquina ${booking.machineNumber} começa em ${NOTIFICATION_LEAD_MINUTES} minutos.`
+      startNotificationBody(booking.machineNumber, minutesUntil(booking.startTime))
     )
   }
   for (const booking of upcomingEnds) {
     enqueue(
       booking,
+      "end",
       "Lavanderia: seu horário está acabando",
-      `Sua reserva na máquina ${booking.machineNumber} termina em ${NOTIFICATION_LEAD_MINUTES} minutos. Prepare-se para retirar as roupas.`
+      endNotificationBody(booking.machineNumber, minutesUntil(booking.endTime))
     )
   }
 
@@ -188,6 +231,7 @@ export async function runNotificationCycle(
   ])
 
   return {
+    vapidConfigured: true,
     sent,
     failed,
     pruned: staleEndpoints.size,

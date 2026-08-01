@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { prismaMock, resetPrismaMock } from "./test-utils/prisma-mock"
-import { NOTIFICATION_LEAD_MINUTES } from "./notifications-config"
+import { NOTIFICATION_GRACE_MINUTES, NOTIFICATION_LEAD_MINUTES } from "./notifications-config"
 
 const sendNotification = vi.fn()
 const setVapidDetails = vi.fn()
@@ -116,7 +116,10 @@ describe("runNotificationCycle", () => {
     delete process.env.VAPID_PRIVATE_KEY
     const { runNotificationCycle } = await importService()
 
+    // `vapidConfigured: false` é o que distingue "não deu para enviar" de
+    // "não havia nada para enviar" — antes os dois casos eram idênticos.
     await expect(runNotificationCycle(NOW)).resolves.toEqual({
+      vapidConfigured: false,
       sent: 0,
       failed: 0,
       pruned: 0,
@@ -125,15 +128,21 @@ describe("runNotificationCycle", () => {
     expect(prismaMock.booking.findMany).not.toHaveBeenCalled()
   })
 
-  it("busca apenas agendamentos dentro da janela de antecedência", async () => {
+  it("busca da janela de antecedência até o limite de atraso tolerado", async () => {
     const { runNotificationCycle } = await importService()
     await runNotificationCycle(NOW)
 
     const horizon = new Date(NOW.getTime() + NOTIFICATION_LEAD_MINUTES * 60_000)
-    const startWhere = prismaMock.booking.findMany.mock.calls[0][0].where
-    expect(startWhere).toEqual({
+    const graceStart = new Date(NOW.getTime() - NOTIFICATION_GRACE_MINUTES * 60_000)
+
+    expect(prismaMock.booking.findMany.mock.calls[0][0].where).toEqual({
       startNotified: false,
-      startTime: { gt: NOW, lte: horizon },
+      startTime: { gte: graceStart, lte: horizon },
+      endTime: { gt: NOW },
+    })
+    expect(prismaMock.booking.findMany.mock.calls[1][0].where).toEqual({
+      endNotified: false,
+      endTime: { gte: graceStart, lte: horizon },
     })
   })
 
@@ -217,16 +226,61 @@ describe("runNotificationCycle", () => {
     expect((await runNotificationCycle(NOW)).sent).toBe(2)
   })
 
-  it("inclui a antecedência configurada no corpo da mensagem", async () => {
+  it("informa no corpo da mensagem quantos minutos realmente faltam", async () => {
     prismaMock.booking.findMany.mockResolvedValueOnce([booking()]).mockResolvedValueOnce([])
     prismaMock.pushSubscription.findMany.mockResolvedValue([subscription()])
 
     const { runNotificationCycle } = await importService()
     await runNotificationCycle(NOW)
 
+    // O agendamento padrão começa 10 minutos depois de NOW.
     const payload = JSON.parse(sendNotification.mock.calls[0][1])
-    expect(payload.body).toContain(`${NOTIFICATION_LEAD_MINUTES} minutos`)
+    expect(payload.body).toContain("começa em 10 minutos")
     expect(payload.body).toContain("máquina 2")
+  })
+
+  // Regressão: a busca começava em `now`, então um agendamento cuja hora do
+  // aviso caiu entre dois ciclos vazava da janela com o flag ainda `false` e
+  // nunca mais era notificado. Com o agendador do GitHub espaçando execuções
+  // em horas, isso perdia quase toda notificação.
+  it("entrega o aviso atrasado quando o ciclo anterior não rodou a tempo", async () => {
+    const atrasado = booking({ startTime: new Date(NOW.getTime() - 20 * 60_000) })
+    prismaMock.booking.findMany.mockResolvedValueOnce([atrasado]).mockResolvedValueOnce([])
+    prismaMock.pushSubscription.findMany.mockResolvedValue([subscription()])
+    prismaMock.booking.updateMany.mockResolvedValue({ count: 1 })
+
+    const { runNotificationCycle } = await importService()
+    const result = await runNotificationCycle(NOW)
+
+    expect(result.sent).toBe(1)
+    // Nada de "começa em 15 minutos" para um horário que já começou.
+    expect(JSON.parse(sendNotification.mock.calls[0][1]).body).toContain("já começou")
+  })
+
+  it("avisa que a reserva terminou quando o aviso de término sai atrasado", async () => {
+    const atrasado = booking({ endTime: new Date(NOW.getTime() - 20 * 60_000) })
+    prismaMock.booking.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([atrasado])
+    prismaMock.pushSubscription.findMany.mockResolvedValue([subscription()])
+
+    const { runNotificationCycle } = await importService()
+    await runNotificationCycle(NOW)
+
+    expect(JSON.parse(sendNotification.mock.calls[0][1]).body).toContain("terminou")
+  })
+
+  // Regressão: com uma tag fixa, o navegador tratava o aviso de término como
+  // substituição do de início e o exibia em silêncio.
+  it("usa uma tag distinta por agendamento e por tipo de aviso", async () => {
+    prismaMock.booking.findMany
+      .mockResolvedValueOnce([booking({ id: "b1" })])
+      .mockResolvedValueOnce([booking({ id: "b1" })])
+    prismaMock.pushSubscription.findMany.mockResolvedValue([subscription()])
+
+    const { runNotificationCycle } = await importService()
+    await runNotificationCycle(NOW)
+
+    const tags = sendNotification.mock.calls.map((call) => JSON.parse(call[1]).tag)
+    expect(tags).toEqual(["b1:start", "b1:end"])
   })
 
   it("marca início e término de forma independente", async () => {
@@ -253,7 +307,13 @@ describe("runNotificationCycle", () => {
     const { runNotificationCycle } = await importService()
     const result = await runNotificationCycle(NOW)
 
-    expect(result).toEqual({ sent: 0, failed: 0, pruned: 0, bookingsMarked: 0 })
+    expect(result).toEqual({
+      vapidConfigured: true,
+      sent: 0,
+      failed: 0,
+      pruned: 0,
+      bookingsMarked: 0,
+    })
     expect(prismaMock.pushSubscription.findMany).not.toHaveBeenCalled()
   })
 
@@ -264,7 +324,13 @@ describe("runNotificationCycle", () => {
     const { runNotificationCycle } = await importService()
     const result = await runNotificationCycle(NOW)
 
-    expect(result).toEqual({ sent: 0, failed: 0, pruned: 0, bookingsMarked: 0 })
+    expect(result).toEqual({
+      vapidConfigured: true,
+      sent: 0,
+      failed: 0,
+      pruned: 0,
+      bookingsMarked: 0,
+    })
     expect(sendNotification).not.toHaveBeenCalled()
   })
 })
