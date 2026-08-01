@@ -125,6 +125,16 @@ jobs:
       - name: Instalar Vercel CLI
         run: npm install --global vercel@latest
 
+      # Ver o mesmo passo em preview.yml: variável "sensitive" quebra o
+      # bundle em silêncio, porque o `vercel pull` do passo seguinte não
+      # consegue ler o valor de volta.
+      - name: Conferir que nenhuma variável está marcada como sensitive
+        run: node .github/scripts/check-env-types.mjs production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
       - name: Deploy de produção
         id: deploy
         env:

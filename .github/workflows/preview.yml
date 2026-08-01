@@ -69,6 +69,18 @@ jobs:
       - name: Instalar Vercel CLI
         run: npm install --global vercel@latest
 
+      # Falha rápido, antes de gastar um build: uma variável "sensitive" não
+      # pode ser lida de volta, então o `vercel pull` abaixo gravaria
+      # "[SENSITIVE]" no lugar do valor real e o build assaria esse texto no
+      # bundle. Foi assim que a chave VAPID ficou quebrada em produção. Ver
+      # .github/scripts/check-env-types.mjs.
+      - name: Conferir que nenhuma variável está marcada como sensitive
+        run: node .github/scripts/check-env-types.mjs preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
       - name: Baixar configuração de preview da Vercel
         run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
         env:
