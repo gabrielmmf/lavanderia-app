@@ -232,6 +232,39 @@ curl -s https://lavanderia-app-two.vercel.app/api/health | jq .notifications
 
 O smoke test do release imprime esse mesmo estado ao final de cada deploy.
 
+### As chaves VAPID não podem ser `sensitive` na Vercel
+
+Esta é a armadilha que manteve as notificações mortas em produção, e ela não
+dá nenhum sinal: o deploy fica verde e o app sobe normalmente.
+
+A Vercel tem dois tipos de variável encriptada. Uma variável `sensitive` **não
+pode ser lida de volta** — nem pela API, nem pelo CLI. E o deploy deste projeto
+é construído no runner, não na Vercel:
+
+```
+vercel pull    →  grava .vercel/.env.<ambiente>.local
+vercel build   →  lê esse arquivo e inlina NEXT_PUBLIC_* no bundle
+vercel deploy --prebuilt
+```
+
+Se a variável for `sensitive`, o `pull` escreve a string literal
+`[SENSITIVE]` no arquivo, e o `build` assa esse texto no bundle como se fosse a
+chave. O resultado é um `NEXT_PUBLIC_VAPID_PUBLIC_KEY` de 11 caracteres
+servido a todo navegador, e um `notifications.configured: false` no health.
+
+Confira o tipo com:
+
+```bash
+vercel env ls production        # a coluna mostra Encrypted vs Sensitive
+```
+
+As três variáveis de push precisam ser **`encrypted`**. Marcar a chave pública
+como secreta é contradição em termos: ela é servida ao navegador por definição.
+A partir de agora o smoke test reprova o deploy nesse estado, então o erro não
+volta calado.
+
+### O `CRON_SECRET` precisa bater entre Vercel e GitHub
+
 O `CRON_SECRET` da Vercel e o secret de mesmo nome no GitHub **têm que ser o
 mesmo valor** — é ele que o `cron-notifications.yml` envia no header. Divergiu,
 o endpoint responde 401.
