@@ -120,6 +120,31 @@ Datas são gravadas em UTC e exibidas em `pt-BR`. Ao testar limites de dia
 (`listBookingsByDate`), use `new Date(ano, mes, dia)` — que é hora local — em vez
 de string ISO, para não comparar fusos diferentes sem perceber.
 
+### Variável de ambiente marcada como `sensitive` na Vercel
+
+**Sintoma:** um deploy sobe verde (build passa, smoke test passa), mas algo
+que depende de uma variável de ambiente fica quebrado — ex.: notificações
+desativadas, ou uma chave que "não bate" mesmo tendo sido configurada.
+
+**Causa:** o deploy deste projeto é construído no runner (`vercel pull` →
+`vercel build` → `vercel deploy --prebuilt`). Uma variável `sensitive` **não
+pode ser lida de volta**, então o `pull` grava a string literal
+`"[SENSITIVE]"` no lugar do valor real, e o `build` embute esse texto no
+bundle (para `NEXT_PUBLIC_*`) ou o disponibiliza errado para o passo que o
+lê. Foi assim que `NEXT_PUBLIC_VAPID_PUBLIC_KEY` ficou quebrada em produção
+por dias — o build nunca reclamou.
+
+**Correção:** confira o tipo, não só se a variável existe:
+
+```bash
+npx vercel env ls production   # a coluna mostra Encrypted vs Sensitive
+```
+
+Recrie como `encrypted` (remova e adicione de novo — não dá para só mudar o
+tipo de uma variável existente). O CI já reprova esse estado sozinho antes do
+build (`.github/scripts/check-env-types.mjs`); se você está lendo este item
+porque esse passo falhou, é exatamente isto.
+
 ### Deploy de preview usando o banco errado
 
 Cada pull request tem sua branch no Neon (`preview/pr-N`). Se o preview parecer

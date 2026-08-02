@@ -46,7 +46,14 @@ Leia `CLAUDE.md` para as regras de negócio e convenções.
    degradação elegante.
 8. **Textos de UI e mensagens de erro em português.**
 9. **`src/components/ui/` não editado à mão** (é shadcn).
-10. **Env var nova** está documentada no `CLAUDE.md` e no `docs/DEPLOY.md`?
+10. **Env var nova** está documentada no `CLAUDE.md` e no `docs/DEPLOY.md`? Se
+    for lida pelo build (`NEXT_PUBLIC_*`) ou pelo CI, ela precisa existir na
+    Vercel como `encrypted`, nunca `sensitive` — uma `sensitive` não pode ser
+    lida de volta, e o `vercel pull` do CI grava `"[SENSITIVE]"` no lugar do
+    valor real sem avisar. O CI confere isso sozinho
+    (`check-env-types.mjs`), mas o pull request que introduz a variável não
+    passa por esse workflow antes de alguém configurá-la manualmente — vale
+    perguntar.
 
 ### Risco de produção
 

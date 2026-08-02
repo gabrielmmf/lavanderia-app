@@ -16,7 +16,8 @@ merge na main   ─▶ release.yml    qualidade ─▶ versão+tag+release
 
 PR fechado      ─▶ preview-cleanup.yml   apaga a branch do Neon
 
-a cada 5 min    ─▶ cron-notifications.yml  chama /api/cron/notifications
+a cada 5 min    ─▶ cron-job.org (externo)   chama /api/cron/notifications — agendador principal
+a cada 1-3h     ─▶ cron-notifications.yml    mesma chamada — rede de segurança, GitHub não é pontual
 ```
 
 A Vercel **não** faz deploy sozinha: `vercel.json` tem
@@ -139,23 +140,52 @@ Causas comuns:
 
 ## "As notificações pararam"
 
-1. O cron está rodando? `gh run list --workflow=cron-notifications.yml --limit 5`
-2. O endpoint responde? Ele exige o header e **falha fechado** sem `CRON_SECRET`:
+Quem dispara o envio é o **cron-job.org** (a cada 5 minutos), com o workflow
+`cron-notifications.yml` como rede de segurança. Detalhes em `docs/DEPLOY.md`,
+seção "Quem dispara as notificações".
+
+1. `curl -s "$PRODUCTION_URL/api/health"` → confira `notifications.configured`.
+   - `false` → o VAPID não está utilizável neste deploy. Vá direto para o item 3.
+2. O endpoint de envio responde? Ele exige o header e **falha fechado** sem
+   `CRON_SECRET`:
 
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" "$PRODUCTION_URL/api/cron/notifications"
    ```
 
-   - `401` → `CRON_SECRET` do repositório difere do da Vercel.
-   - `{"sent":0}` sempre → sem inscrições, ou VAPID não configurado. O serviço
-     registra `VAPID não configurado — ciclo de notificações ignorado.` e
-     devolve zeros em vez de quebrar.
-3. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` precisa estar na Vercel **em build time** —
-   variáveis `NEXT_PUBLIC_*` são embutidas no bundle. Mudou a chave? precisa de
-   novo deploy.
-4. O GitHub atrasa `schedule` em horários de pico. Atraso de alguns minutos é
-   normal e não perde notificação: a janela é de 15 minutos e o endpoint é
-   idempotente.
+   - `401` → `CRON_SECRET` do repositório (ou do cron-job.org) difere do da
+     Vercel. Lembre que uma variável `sensitive` não pode ser conferida —
+     rotacione e sincronize os três lugares (ver item 3).
+   - `503` com `"vapidConfigured":false` → as chaves VAPID estão ausentes ou
+     inválidas. Vá para o item 3.
+   - `200` com `"sent":0` → não é erro, só não havia nada na janela dos
+     próximos `NOTIFICATION_LEAD_MINUTES` nem nos últimos
+     `NOTIFICATION_GRACE_MINUTES` de atraso tolerado.
+3. **Confira o *tipo* das variáveis na Vercel, não só se elas existem.**
+   `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `CRON_SECRET` precisam
+   ser `encrypted`. Se estiverem como `sensitive`, o `vercel pull` do CI grava
+   a string literal `"[SENSITIVE]"` no lugar do valor, e o `vercel build` assa
+   esse texto no bundle — o deploy sobe verde e a chave pública fica com 11
+   caracteres em vez de 87. Foi exatamente isso que manteve as notificações
+   mortas em produção por dias, sem nenhum sinal no CI.
+
+   ```bash
+   npx vercel env ls production      # a coluna mostra Encrypted vs Sensitive
+   ```
+
+   O CI reprova esse estado automaticamente antes do build
+   (`.github/scripts/check-env-types.mjs`, chamado por `preview.yml` e
+   `release.yml`) — se esse passo falhar, é exatamente este problema.
+4. Mudou alguma dessas variáveis? **Precisa de um novo deploy** —
+   `NEXT_PUBLIC_*` é embutida no bundle em build time, e mesmo as variáveis só
+   de servidor ficam congeladas no deployment desde quando ele foi criado;
+   mudar o valor no painel não afeta um deploy já existente.
+5. O `schedule` do GitHub **não é pontual** — neste repositório chegou a
+   espaçar execuções em 1 a 3 horas, apesar do `*/5`. Não é o agendador
+   principal; é só a rede de segurança. Se o cron-job.org também estiver
+   falhando, o ciclo ainda tolera atraso de até `NOTIFICATION_GRACE_MINUTES`
+   (a janela de busca começa em `now - GRACE`, não em `now`), então um
+   disparo tardio entrega o que ficou para trás em vez de perder o aviso.
 
 ## Configuração esperada do repositório
 
@@ -181,6 +211,13 @@ Variables (`gh variable list`):
 
 Variáveis na Vercel (`npx vercel env ls`) — todos os ambientes:
 `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
-`VAPID_PRIVATE_KEY`, `CRON_SECRET`.
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET`. Todas precisam ser do tipo
+**`encrypted`** — nunca `sensitive` (ver "As notificações pararam" acima). O
+CI confere isso sozinho antes de cada build (`check-env-types.mjs`).
+
+Externo, fora do GitHub e da Vercel: um cronjob no **cron-job.org** chamando
+`/api/cron/notifications` a cada 5 minutos com o mesmo `CRON_SECRET`. É o
+agendador principal das notificações — não tem como ver o estado dele por
+`gh` ou `vercel`, só entrando na conta do cron-job.org.
 
 O passo a passo de configuração está em `docs/DEPLOY.md`.
