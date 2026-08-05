@@ -9,6 +9,7 @@ const {
   BookingNotFoundError,
   BookingValidationError,
   BookingWeeklyLimitError,
+  MachineInMaintenanceError,
   createBooking,
   deleteBooking,
   deleteExpiredBookings,
@@ -103,6 +104,14 @@ describe("createBooking", () => {
     prismaMock.booking.findFirst.mockResolvedValue({ id: "existente" })
 
     await expect(createBooking(input())).rejects.toThrow(/já está agendada/)
+    expect(prismaMock.booking.create).not.toHaveBeenCalled()
+  })
+
+  it("detecta se a máquina está em manutenção", async () => {
+    prismaMock.booking.findFirst.mockResolvedValue(null)
+    prismaMock.maintenance.findFirst.mockResolvedValue({ id: "maint1" })
+
+    await expect(createBooking(input())).rejects.toBeInstanceOf(MachineInMaintenanceError)
     expect(prismaMock.booking.create).not.toHaveBeenCalled()
   })
 

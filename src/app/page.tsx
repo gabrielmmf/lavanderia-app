@@ -20,6 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Megaphone } from "lucide-react"
 
 /** Espera antes de sugerir as notificações, para não atropelar o carregamento. */
 const PROMPT_DELAY_MS = 1500
@@ -29,6 +31,16 @@ export default function Home() {
   const [apartment, setApartment] = useStoredApartment()
   const { permission, isSupported, isConfigured, requestPermission } = useNotifications()
   const [showPrompt, setShowPrompt] = useState(false)
+  const [notices, setNotices] = useState<{ id: string, message: string }[]>([])
+
+  useEffect(() => {
+    fetch("/api/notices")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setNotices(data)
+      })
+      .catch(console.error)
+  }, [])
 
   // `isConfigured` entra aqui pelo mesmo motivo do botão: sem chave VAPID
   // válida o convite só levaria a um erro.
@@ -56,6 +68,16 @@ export default function Home() {
             <NotificationToggle apartmentNumber={apartment} />
           </CardContent>
         </Card>
+
+        {notices.map(notice => (
+          <Alert key={notice.id} variant="default" className="bg-primary/10 border-primary/20 text-primary-foreground">
+            <Megaphone className="h-4 w-4 !text-primary" />
+            <AlertTitle className="text-primary font-semibold mb-1">Aviso</AlertTitle>
+            <AlertDescription className="text-foreground">
+              {notice.message}
+            </AlertDescription>
+          </Alert>
+        ))}
 
         <BookingForm
           apartment={apartment}
