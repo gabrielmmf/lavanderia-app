@@ -46,6 +46,9 @@ next-env.d.ts
 # configuração local do Claude Code (a compartilhada fica versionada)
 .claude/settings.local.json
 
+# transcrições locais das sessões — contêm saídas de comandos, inclusive segredos
+/.claude-code-history/
+
 # >>> agentlink >>>
 # Materialised by `agentlink apply` from the canonical layout (AGENTS.md,
 # .agents/). Commit the canonical layout; these paths are per-developer.

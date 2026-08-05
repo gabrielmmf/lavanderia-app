@@ -66,16 +66,19 @@ export function BookingList({
   refresh,
   onRefresh,
   currentApartment,
+  isAdmin,
 }: {
   refresh?: number
   onRefresh?: () => void
   currentApartment?: string
+  isAdmin?: boolean
 }) {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [viewDate, setViewDate] = useState(new Date())
 
   function loadBookings() {
-    fetch("/api/bookings")
+    const endpoint = isAdmin ? "/api/admin/bookings" : "/api/bookings"
+    fetch(endpoint)
       .then(res => res.json())
       .then(setBookings)
   }
@@ -85,7 +88,8 @@ export function BookingList({
   }, [refresh])
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/bookings/${id}`, { method: "DELETE" })
+    const endpoint = isAdmin ? `/api/admin/bookings/${id}` : `/api/bookings/${id}`
+    const res = await fetch(endpoint, { method: "DELETE" })
     if (!res.ok) {
       const data = await res.json()
       alert(data.error || "Erro ao excluir")
@@ -168,9 +172,9 @@ export function BookingList({
                             booking={b}
                             compact
                             onDelete={
-                              currentApartment &&
+                              isAdmin || (currentApartment &&
                               b.apartmentNumber.trim().toLowerCase() ===
-                                currentApartment.trim().toLowerCase()
+                                currentApartment.trim().toLowerCase())
                                 ? handleDelete
                                 : undefined
                             }

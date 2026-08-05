@@ -12,12 +12,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { LogOut, Trash2 } from "lucide-react"
+import { BookingList } from "@/components/booking/BookingList"
 
 export default function AdminDashboard() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("bookings")
 
-  const [bookings, setBookings] = useState<{ id: string, apartmentNumber: string, machineNumber: number, startTime: string, endTime: string }[]>([])
   const [notices, setNotices] = useState<{ id: string, message: string, isActive: boolean }[]>([])
   const [maintenances, setMaintenances] = useState<{ id: string, machineNumber: number, startTime: string, endTime: string, reason: string | null }[]>([])
 
@@ -30,12 +30,10 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [bRes, nRes, mRes] = await Promise.all([
-        fetch("/api/admin/bookings"),
+      const [nRes, mRes] = await Promise.all([
         fetch("/api/admin/notices"),
         fetch("/api/admin/maintenances")
       ])
-      if (bRes.ok) setBookings(await bRes.json())
       if (nRes.ok) setNotices(await nRes.json())
       if (mRes.ok) setMaintenances(await mRes.json())
     } catch {
@@ -53,12 +51,6 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await fetch("/api/admin/logout", { method: "POST" })
     router.push("/admin/login")
-  }
-
-  const handleDeleteBooking = async (id: string) => {
-    if (!confirm("Tem certeza que deseja deletar este agendamento?")) return
-    await fetch(`/api/admin/bookings/${id}`, { method: "DELETE" })
-    fetchData()
   }
 
   const handleCreateNotice = async (e: React.FormEvent) => {
@@ -137,45 +129,7 @@ export default function AdminDashboard() {
           </TabsList>
           
           <TabsContent value="bookings" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Todos os Agendamentos</CardTitle>
-                <CardDescription>Gerencie todos os horários marcados.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Apto</TableHead>
-                      <TableHead>Máquina</TableHead>
-                      <TableHead>Início</TableHead>
-                      <TableHead>Fim</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bookings.map(b => (
-                      <TableRow key={b.id}>
-                        <TableCell className="font-medium">{b.apartmentNumber}</TableCell>
-                        <TableCell>{b.machineNumber}</TableCell>
-                        <TableCell>{format(new Date(b.startTime), "dd/MM/yy HH:mm")}</TableCell>
-                        <TableCell>{format(new Date(b.endTime), "dd/MM/yy HH:mm")}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => handleDeleteBooking(b.id)} className="text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {bookings.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">Nenhum agendamento encontrado.</TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <BookingList isAdmin />
           </TabsContent>
 
           <TabsContent value="notices" className="space-y-4">
@@ -191,7 +145,7 @@ export default function AdminDashboard() {
                     <Input value={newNoticeMsg} onChange={e => setNewNoticeMsg(e.target.value)} required placeholder="Ex: Falta de água prevista para amanhã às 14h" />
                   </div>
                 </CardContent>
-                <CardFooter>
+                <CardFooter className="pt-4">
                   <Button type="submit">Publicar Aviso</Button>
                 </CardFooter>
               </form>
@@ -273,7 +227,7 @@ export default function AdminDashboard() {
                     <Input type="datetime-local" value={maintEnd} onChange={e => setMaintEnd(e.target.value)} required />
                   </div>
                 </CardContent>
-                <CardFooter>
+                <CardFooter className="pt-4">
                   <Button type="submit">Adicionar Interdição</Button>
                 </CardFooter>
               </form>
