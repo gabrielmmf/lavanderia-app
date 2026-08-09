@@ -40,3 +40,23 @@ model PushSubscription {
 
   @@index([apartmentNumber])
 }
+
+/// Avisos gerais que aparecem na tela principal para todos os moradores
+model Notice {
+  id        String   @id @default(uuid())
+  message   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+/// Bloqueio de máquinas para manutenção
+model Maintenance {
+  id            String   @id @default(uuid())
+  machineNumber Int
+  startTime     DateTime
+  endTime       DateTime
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([machineNumber, startTime, endTime])
+}

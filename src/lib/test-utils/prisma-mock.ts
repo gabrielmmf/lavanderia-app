@@ -27,6 +27,18 @@ export const prismaMock = {
     delete: vi.fn(),
     deleteMany: vi.fn(),
   },
+  maintenance: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
+  notice: {
+    findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  }
 }
 
 /** Zera todos os mocks e devolve retornos neutros. */
@@ -44,4 +56,7 @@ export function resetPrismaMock() {
   prismaMock.pushSubscription.findMany.mockResolvedValue([])
   prismaMock.pushSubscription.count.mockResolvedValue(0)
   prismaMock.pushSubscription.deleteMany.mockResolvedValue({ count: 0 })
+  prismaMock.maintenance.findFirst.mockResolvedValue(null)
+  prismaMock.maintenance.findMany.mockResolvedValue([])
+  prismaMock.notice.findMany.mockResolvedValue([])
 }

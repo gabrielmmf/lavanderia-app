@@ -124,3 +124,11 @@ export class BookingValidationError extends Error {
     this.name = "BookingValidationError"
   }
 }
+
+/** Lançado quando a máquina está em manutenção no horário desejado. */
+export class MachineInMaintenanceError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "MachineInMaintenanceError"
+  }
+}

@@ -14,6 +14,7 @@ import {
   MAX_BOOKING_HOURS,
   isBookingEffectuated,
   isValidMachineNumber,
+  MachineInMaintenanceError,
 } from "./booking-rules"
 
 export {
@@ -26,6 +27,7 @@ export {
   MAX_APARTMENT_BOOKINGS,
   MAX_APARTMENT_BOOKINGS_PER_WINDOW,
   MAX_BOOKING_HOURS,
+  MachineInMaintenanceError,
 } from "./booking-rules"
 
 /** Janela de retenção de agendamentos já encerrados, em milissegundos. */
@@ -100,6 +102,20 @@ export async function createBooking(data: CreateBookingInput) {
   if (conflict) {
     throw new BookingValidationError(
       `Máquina ${data.machineNumber} já está agendada nesse horário`
+    )
+  }
+
+  const maintenance = await prisma.maintenance.findFirst({
+    where: {
+      machineNumber: data.machineNumber,
+      startTime: { lt: data.endTime },
+      endTime: { gt: data.startTime },
+    },
+  })
+
+  if (maintenance) {
+    throw new MachineInMaintenanceError(
+      `A máquina ${data.machineNumber} estará em manutenção neste horário`
     )
   }
 
