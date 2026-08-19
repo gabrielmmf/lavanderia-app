@@ -135,6 +135,52 @@ consomem a cota (plano free: **10 branches**). Recomendado desativar a criação
 automática de branches da integração em **Vercel → Settings → Integrations →
 Neon**, já que o CI faz isso de forma determinística e com limpeza automática.
 
+### A cota de compute do Neon
+
+O plano free dá **100 CU-horas por projeto por mês**, o compute mínimo é
+**0,25 CU** e o autosuspend é **fixo em 5 minutos** — no free ele não é
+configurável. Traduzindo para o que importa na prática:
+
+```
+100 CU-horas ÷ 0,25 CU = 400 horas de banco ACORDADO por mês ≈ 13 h/dia
+```
+
+Qualquer coisa que mantenha o banco acordado 24 horas por dia estoura a cota por
+volta do dia 17 do mês. Foi o que aconteceu em **19/08/2026**: o cron de
+notificações chamava `/api/cron/notifications` a cada 5 minutos e o ciclo
+consultava o banco em toda chamada, ou seja, acordava o compute exatamente no
+ritmo em que ele tentaria dormir. Consumo medido: 110,1 de 100 CU-horas no dia
+19, ~5,9 CU-horas por dia — que é 0,25 CU ligado ininterruptamente. O banco foi
+suspenso e o app passou a responder erro `53000`
+(`Your account or project has exceeded the compute time quota`).
+
+Com o autosuspend fixo em 5 minutos, **o intervalo do cron é o ciclo de trabalho
+do banco**:
+
+| Intervalo do cron          | Banco acordado | CU-horas/mês | Cabe em 100? |
+| -------------------------- | -------------- | ------------ | ------------ |
+| 5 min                      | ~100%          | ~180         | ❌            |
+| 10 min                     | ~50%           | ~91          | ⚠️ sem folga  |
+| 15 min                     | ~33%           | ~61          | ✅            |
+| 20 min, só das 7h às 23h   | ~17%           | ~31          | ✅            |
+| desligado (estado atual)   | só o uso real  | ~15–20       | ✅            |
+
+O que **não** resolve: apagar branches. Branch parada não consome — as três
+(`production`, `vercel-dev`, `preview/pr-N`) apareciam `Idle` no dashboard
+enquanto a cota queimava. Reduzir o tamanho do compute também não: o consumo já
+batia com o piso de 0,25 CU, então a faixa `.25 ↔ 2 CU` nunca chegou a escalar.
+
+Diagnóstico rápido:
+
+```bash
+curl -s "$PRODUCTION_URL/api/health" | jq .database
+# {"reachable": false, ...}  →  banco suspenso; confira Billing no console do Neon
+```
+
+O contador zera no primeiro dia de cada mês, e as CU-horas já gastas não voltam:
+enquanto a cota está estourada, **nem `pg_dump` conecta**. Um upgrade destrava na
+hora (o compute precisa reiniciar para pegar os limites novos).
+
 ## Migrations: a regra expand/contract
 
 As migrations rodam **antes** do deploy. Existe uma janela de segundos em que o
@@ -217,7 +263,10 @@ npx vercel env add VAPID_SUBJECT <ambiente> # opcional: mailto:voce@exemplo.com
 ```
 
 `NEXT_PUBLIC_VAPID_PUBLIC_KEY` é embutida no bundle em tempo de build: trocá-la
-exige um novo deploy.
+exige um novo deploy. O mesmo vale para `NEXT_PUBLIC_NOTIFICATIONS_ENABLED`, que
+liga ou desliga o ciclo inteiro (ver "Quem dispara as notificações"). Ela não
+está definida em nenhum ambiente hoje — ausente significa **desligado**, que é o
+estado desejado enquanto o cron não voltar.
 
 Cole o valor **cru**, sem aspas e sem espaços em volta. A chave pública tem
 exatamente 87 caracteres do alfabeto base64url (`A-Z a-z 0-9 - _`); qualquer
@@ -227,7 +276,9 @@ botão como desativado. Para conferir o que está no ar:
 
 ```bash
 curl -s https://lavanderia-app-two.vercel.app/api/health | jq .notifications
-# {"configured": true}
+# {"enabled": false, "configured": true}
+#   enabled    → decidimos ligar o ciclo? (NEXT_PUBLIC_NOTIFICATIONS_ENABLED)
+#   configured → as chaves VAPID deste deploy servem?
 ```
 
 O smoke test do release imprime esse mesmo estado ao final de cada deploy.
@@ -380,6 +431,13 @@ gh release list --limit 5
 
 ## Quem dispara as notificações
 
+> **DESLIGADAS desde 19/08/2026** — cota de compute do Neon. Enquanto
+> `NEXT_PUBLIC_NOTIFICATIONS_ENABLED` não for `true`, nenhum caminho de
+> notificação toca o banco: o ciclo retorna antes da primeira consulta, as
+> rotas de inscrição respondem 503 e a UI mostra o botão como "Desativadas".
+> O motivo e as contas estão em "A cota de compute do Neon". O resto desta
+> seção descreve como o envio funciona **quando ligado**.
+
 O envio é *pull*: alguém precisa chamar `GET /api/cron/notifications` com o
 `CRON_SECRET` no header. Quem chama são duas fontes, de propósito.
 
@@ -404,10 +462,35 @@ Qualquer agendador HTTP serve — o endpoint aceita GET e POST e é idempotente.
 
 ### 2. GitHub Actions — rede de segurança
 
-O `cron-notifications.yml` continua ativo. Ele não garante pontualidade, mas
-garante que nada fique parado para sempre se o agendador externo cair. Como o
-ciclo tolera atraso (ver abaixo), um disparo tardio ainda entrega o que ficou
-para trás.
+O `cron-notifications.yml` não garante pontualidade, mas garantia que nada
+ficasse parado para sempre se o agendador externo caísse. Como o ciclo tolera
+atraso (ver abaixo), um disparo tardio ainda entrega o que ficou para trás.
+
+O `schedule` dele está **comentado** desde 19/08/2026: mesmo espaçado em 1 a 3
+horas pelo GitHub, ele sozinho manteria o banco acordado boa parte do dia. O
+`workflow_dispatch` continua disponível para disparo manual.
+
+### Como religar
+
+Os quatro passos valem juntos — qualquer um sozinho não funciona, e o primeiro
+sem os outros volta a queimar a cota:
+
+1. Escolha um intervalo que caiba na cota (ver a tabela em "A cota de compute do
+   Neon"). No plano free, 5 minutos **não** cabe.
+2. `npx vercel env add NEXT_PUBLIC_NOTIFICATIONS_ENABLED production` com o valor
+   `true`, e **faça um novo deploy** — o valor é embutido no bundle em build
+   time, mudar no painel não afeta um deploy já existente.
+3. Descomente o `schedule` de `.github/workflows/cron-notifications.yml` com o
+   intervalo escolhido.
+4. Recrie o job no cron-job.org, no mesmo intervalo.
+
+Confira em `/api/health`: `notifications.enabled` precisa virar `true`. Se
+`configured` estiver `false`, as chaves VAPID também precisam de atenção antes
+de qualquer coisa.
+
+Se o intervalo escolhido for maior que `NOTIFICATION_LEAD_MINUTES` (15), suba o
+lead junto — senão o aviso de "faltam 15 minutos" passa a chegar depois do
+horário começar, dentro da tolerância de `NOTIFICATION_GRACE_MINUTES`.
 
 ### Por que o atraso não perde mais a notificação
 
@@ -425,7 +508,9 @@ gh workflow run cron-notifications.yml            # via Actions
 
 curl -s -H "Authorization: Bearer $CRON_SECRET" \
   https://lavanderia-app-two.vercel.app/api/cron/notifications
-# {"success":true,"sent":0,"failed":0,"pruned":0,"bookingsMarked":0}
+# ligado:    {"success":true,"enabled":true,"sent":0,...}
+# desligado: {"success":true,"enabled":false,"message":"Notificações desligadas..."}
+#            (200, e sem nenhuma consulta ao banco)
 ```
 
 ## Rollback

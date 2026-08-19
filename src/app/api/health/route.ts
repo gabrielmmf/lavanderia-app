@@ -4,6 +4,7 @@ import { isAuthorizedCronRequest } from "@/lib/cron-auth"
 import { databaseEndpointId } from "@/lib/database-info"
 import { errorMessage } from "@/lib/api-errors"
 import { ensureVapidConfigured } from "@/lib/notification-service"
+import { NOTIFICATIONS_ENABLED } from "@/lib/notifications-config"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -51,7 +52,14 @@ export async function GET(request: Request) {
       // notificações — é o comportamento documentado. Mas o estado precisa
       // aparecer em algum lugar, senão uma chave inválida em produção só é
       // descoberta por um morador clicando num botão que nunca funciona.
-      notifications: { configured: ensureVapidConfigured() },
+      //
+      // `enabled` e `configured` respondem perguntas diferentes: a primeira é
+      // "decidimos desligar?", a segunda é "as chaves servem?". Sem as duas,
+      // um silêncio deliberado e uma chave quebrada ficam idênticos daqui.
+      notifications: {
+        enabled: NOTIFICATIONS_ENABLED,
+        configured: ensureVapidConfigured(),
+      },
       database: {
         reachable,
         schemaUpToDate,

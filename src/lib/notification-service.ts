@@ -3,6 +3,7 @@ import { prisma } from "./prisma"
 import {
   NOTIFICATION_GRACE_MINUTES,
   NOTIFICATION_LEAD_MINUTES,
+  NOTIFICATIONS_ENABLED,
   endNotificationBody,
   normalizeVapidPublicKey,
   startNotificationBody,
@@ -40,6 +41,14 @@ export function ensureVapidConfigured(): boolean {
 }
 
 export type NotificationRunResult = {
+  /**
+   * Se as notificações estão ligadas neste deploy (`NOTIFICATIONS_ENABLED`).
+   *
+   * Separado de `vapidConfigured` de propósito: "desligado porque decidimos
+   * desligar" e "quebrado porque falta a chave" pedem reações opostas de quem
+   * cuida do deploy, e um único booleano faria as duas causas se confundirem.
+   */
+  enabled: boolean
   /**
    * Se o ciclo chegou a rodar. `false` significa VAPID ausente ou inválido —
    * nada foi consultado nem enviado.
@@ -84,11 +93,22 @@ export async function runNotificationCycle(
   now: Date = new Date()
 ): Promise<NotificationRunResult> {
   const empty: NotificationRunResult = {
+    enabled: true,
     vapidConfigured: true,
     sent: 0,
     failed: 0,
     pruned: 0,
     bookingsMarked: 0,
+  }
+
+  // Antes de tudo, inclusive do VAPID: este retorno é o que mantém o compute do
+  // Neon dormindo. Qualquer consulta daqui para baixo acordaria o banco por 5
+  // minutos, que é justamente o custo que a flag existe para evitar.
+  if (!NOTIFICATIONS_ENABLED) {
+    // `vapidConfigured` sai com o valor real, não com o `true` do `empty`:
+    // reportar uma chave que ninguém conferiu esconderia um segundo problema
+    // atrás do primeiro, e descobrir isso só ao religar seria o pior momento.
+    return { ...empty, enabled: false, vapidConfigured: ensureVapidConfigured() }
   }
 
   if (!ensureVapidConfigured()) {
@@ -231,6 +251,7 @@ export async function runNotificationCycle(
   ])
 
   return {
+    enabled: true,
     vapidConfigured: true,
     sent,
     failed,

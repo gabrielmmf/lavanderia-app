@@ -53,6 +53,13 @@ function mockPushCapableBrowser({ everRegistered }: { everRegistered: boolean })
   return { register, registration }
 }
 
+/** Importa o hook com as notificações desligadas, como está em produção. */
+async function importHookDesligado() {
+  vi.resetModules()
+  process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "false"
+  return (await import("./useNotifications")).useNotifications
+}
+
 describe("useNotifications", () => {
   const originalNotification = window.Notification
   const originalPushManager = window.PushManager
@@ -61,6 +68,7 @@ describe("useNotifications", () => {
 
   afterEach(() => {
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = originalVapidKey
+    process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "true"
     vi.unstubAllGlobals()
     Object.defineProperty(window, "Notification", {
       configurable: true,
@@ -90,6 +98,43 @@ describe("useNotifications", () => {
     const { result } = renderHook(() => useNotifications())
 
     await waitFor(() => expect(result.current.isSupported).toBe(true))
+  })
+
+  /**
+   * Regressão da queda por cota do Neon (19/08/2026): com as notificações
+   * desligadas, clicar em "ativar" não pode chegar ao servidor. O `fetch` de
+   * inscrição faria um `upsert` e acordaria o compute por 5 minutos — o mesmo
+   * custo que desligar tudo existe para evitar.
+   */
+  describe("com as notificações desligadas", () => {
+    it("reporta isEnabled falso", async () => {
+      const useHook = await importHookDesligado()
+      mockPushCapableBrowser({ everRegistered: true })
+
+      const { result } = renderHook(() => useHook())
+
+      await waitFor(() => expect(result.current.isSupported).toBe(true))
+      expect(result.current.isEnabled).toBe(false)
+    })
+
+    it("não pede permissão nem chama o servidor ao tentar ativar", async () => {
+      const useHook = await importHookDesligado()
+      const { registration } = mockPushCapableBrowser({ everRegistered: true })
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+
+      const { result } = renderHook(() => useHook())
+      await waitFor(() => expect(result.current.isSupported).toBe(true))
+
+      await act(async () => {
+        await result.current.requestPermission("101")
+      })
+
+      expect(window.Notification.requestPermission).not.toHaveBeenCalled()
+      expect(registration.pushManager.subscribe).not.toHaveBeenCalled()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(result.current.error).toContain("desativadas")
+    })
   })
 
   /**

@@ -17,6 +17,7 @@ const ORIGINAL_SECRET = process.env.CRON_SECRET
 beforeEach(() => {
   process.env.CRON_SECRET = "s3cr3t"
   runNotificationCycle.mockReset().mockResolvedValue({
+    enabled: true,
     vapidConfigured: true,
     sent: 2,
     failed: 0,
@@ -51,6 +52,7 @@ describe("GET /api/cron/notifications", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       success: true,
+      enabled: true,
       vapidConfigured: true,
       sent: 2,
       failed: 0,
@@ -64,6 +66,7 @@ describe("GET /api/cron/notifications", () => {
   // as notificações desligadas em produção.
   it("responde 503 quando o VAPID não está configurado", async () => {
     runNotificationCycle.mockResolvedValue({
+      enabled: true,
       vapidConfigured: false,
       sent: 0,
       failed: 0,
@@ -77,6 +80,28 @@ describe("GET /api/cron/notifications", () => {
     await expect(response.json()).resolves.toMatchObject({
       success: false,
       vapidConfigured: false,
+    })
+  })
+
+  // Desligado de propósito não pode pintar o cron de vermelho: o 503 acima é o
+  // sinal de "quebrou", e gastá-lo numa decisão documentada ensinaria a ignorar
+  // o alarme justamente quando ele importasse.
+  it("responde 200 quando as notificações estão desligadas", async () => {
+    runNotificationCycle.mockResolvedValue({
+      enabled: false,
+      vapidConfigured: true,
+      sent: 0,
+      failed: 0,
+      pruned: 0,
+      bookingsMarked: 0,
+    })
+
+    const response = await GET(request("Bearer s3cr3t"))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      enabled: false,
     })
   })
 

@@ -15,6 +15,18 @@ export async function GET(request: Request) {
   try {
     const result = await runNotificationCycle()
 
+    // Desligado de propósito não é falha: 200. O 503 abaixo existe para pintar
+    // o cron de vermelho quando algo QUEBROU, e usar o mesmo sinal para uma
+    // decisão documentada só ensinaria a ignorar o vermelho.
+    if (!result.enabled) {
+      return NextResponse.json({
+        success: true,
+        message:
+          "Notificações desligadas neste deploy (NOTIFICATIONS_ENABLED). Nenhuma consulta ao banco foi feita.",
+        ...result,
+      })
+    }
+
     // Sem VAPID o ciclo não tem como enviar nada. Responder 200 aqui é o que
     // fez o problema passar despercebido: o workflow ficava verde enquanto as
     // notificações estavam desligadas em produção. 503 pinta o cron de

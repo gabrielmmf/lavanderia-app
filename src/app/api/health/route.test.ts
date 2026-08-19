@@ -75,10 +75,10 @@ describe("GET /api/health", () => {
     })
   })
 
-  it("informa que as notificações estão configuradas", async () => {
+  it("informa que as notificações estão ligadas e configuradas", async () => {
     const body = await (await GET(request())).json()
 
-    expect(body.notifications).toEqual({ configured: true })
+    expect(body.notifications).toEqual({ enabled: true, configured: true })
   })
 
   /**

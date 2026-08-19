@@ -10,6 +10,7 @@ export function NotificationToggle({ apartmentNumber }: { apartmentNumber: strin
     isSubscribed,
     isSupported,
     isConfigured,
+    isEnabled,
     error,
     requestPermission,
     unsubscribe,
@@ -21,11 +22,31 @@ export function NotificationToggle({ apartmentNumber }: { apartmentNumber: strin
   return (
     <div className="flex flex-col items-end gap-1">
       {/*
-        Sem chave VAPID válida a inscrição é impossível: oferecer o botão só
-        levaria o morador a um erro garantido a cada clique. O estado desativado
-        diz a verdade — e é visível o bastante para quem cuida do deploy notar.
+        Dois estados desativados, por motivos diferentes, e a ordem importa:
+        `isEnabled` vem primeiro porque é uma decisão nossa e explica o caso
+        mesmo que a chave VAPID também esteja faltando.
+
+        "Desativadas" — desligamos de propósito (ver `NOTIFICATIONS_ENABLED`).
+        Sumir da tela seria pior: os avisos param de chegar de um jeito que o
+        morador percebe, e sem nada escrito ele conclui que o app quebrou.
+
+        "Indisponíveis" — sem chave VAPID válida a inscrição é impossível, e
+        oferecer o botão levaria o morador a um erro garantido a cada clique.
+        O estado desativado diz a verdade, e é visível o bastante para quem
+        cuida do deploy notar.
       */}
-      {!isConfigured ? (
+      {!isEnabled ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          disabled
+          title="As notificações estão temporariamente desativadas"
+        >
+          <BellOff className="h-4 w-4 mr-2" />
+          Desativadas
+        </Button>
+      ) : !isConfigured ? (
         <Button
           variant="ghost"
           size="sm"
