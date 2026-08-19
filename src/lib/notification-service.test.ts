@@ -56,6 +56,7 @@ beforeEach(() => {
   setVapidDetails.mockReset()
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = CHAVE_PUBLICA_VALIDA
   process.env.VAPID_PRIVATE_KEY = "private-key"
+  process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "true"
   // Os caminhos de erro logam de propósito; silencia para manter a saída limpa.
   vi.spyOn(console, "error").mockImplementation(() => {})
   vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -111,6 +112,58 @@ describe("ensureVapidConfigured", () => {
   })
 })
 
+/**
+ * Regressão da queda de 19/08/2026. O ciclo rodava a cada 5 minutos e consultava
+ * o banco em toda chamada; como o autosuspend do Neon no plano free é fixo em 5
+ * minutos, o compute nunca dormia e a cota mensal de 100 CU-horas acabava no dia
+ * 19, com o banco suspenso e o app fora do ar.
+ *
+ * O que estes testes protegem não é o "não enviou": é o **não consultou**. Um
+ * retorno vazio depois de consultar o banco passaria por correto na saída e
+ * manteria o custo exatamente igual ao do bug.
+ */
+describe("runNotificationCycle com as notificações desligadas", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "false"
+  })
+
+  it("não toca no banco e reporta enabled: false", async () => {
+    const { runNotificationCycle } = await importService()
+
+    const result = await runNotificationCycle(NOW)
+
+    expect(result).toMatchObject({ enabled: false, sent: 0, bookingsMarked: 0 })
+    expect(prismaMock.booking.findMany).not.toHaveBeenCalled()
+    expect(prismaMock.pushSubscription.findMany).not.toHaveBeenCalled()
+    expect(prismaMock.booking.updateMany).not.toHaveBeenCalled()
+    expect(sendNotification).not.toHaveBeenCalled()
+  })
+
+  it("continua sem tocar no banco quando há agendamentos na janela", async () => {
+    prismaMock.booking.findMany.mockResolvedValue([booking()])
+    prismaMock.pushSubscription.findMany.mockResolvedValue([subscription()])
+
+    const { runNotificationCycle } = await importService()
+    const result = await runNotificationCycle(NOW)
+
+    expect(result.enabled).toBe(false)
+    expect(prismaMock.booking.findMany).not.toHaveBeenCalled()
+    expect(sendNotification).not.toHaveBeenCalled()
+  })
+
+  // O estado do VAPID sai real, não presumido: senão, ao religar, uma chave
+  // quebrada só apareceria depois — já com o cron rodando e gastando cota.
+  it("reporta o estado real do VAPID mesmo desligado", async () => {
+    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    const { runNotificationCycle } = await importService()
+
+    const result = await runNotificationCycle(NOW)
+
+    expect(result).toMatchObject({ enabled: false, vapidConfigured: false })
+    expect(prismaMock.booking.findMany).not.toHaveBeenCalled()
+  })
+})
+
 describe("runNotificationCycle", () => {
   it("não envia nada quando o VAPID não está configurado", async () => {
     delete process.env.VAPID_PRIVATE_KEY
@@ -119,6 +172,7 @@ describe("runNotificationCycle", () => {
     // `vapidConfigured: false` é o que distingue "não deu para enviar" de
     // "não havia nada para enviar" — antes os dois casos eram idênticos.
     await expect(runNotificationCycle(NOW)).resolves.toEqual({
+      enabled: true,
       vapidConfigured: false,
       sent: 0,
       failed: 0,
@@ -308,6 +362,7 @@ describe("runNotificationCycle", () => {
     const result = await runNotificationCycle(NOW)
 
     expect(result).toEqual({
+      enabled: true,
       vapidConfigured: true,
       sent: 0,
       failed: 0,
@@ -325,6 +380,7 @@ describe("runNotificationCycle", () => {
     const result = await runNotificationCycle(NOW)
 
     expect(result).toEqual({
+      enabled: true,
       vapidConfigured: true,
       sent: 0,
       failed: 0,

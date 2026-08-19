@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
-import { normalizeVapidPublicKey } from "./notifications-config"
+import { NOTIFICATIONS_ENABLED, normalizeVapidPublicKey } from "./notifications-config"
 
 // Validada uma vez, no formato — não basta existir. O valor é inlinado no
 // bundle em tempo de build, então uma chave inválida é inválida para todo mundo
@@ -78,6 +78,8 @@ export type NotificationsApi = {
   isSupported: boolean
   /** Se este deploy tem uma chave VAPID pública utilizável. */
   isConfigured: boolean
+  /** Se as notificações estão ligadas neste deploy (`NOTIFICATIONS_ENABLED`). */
+  isEnabled: boolean
   /** Último erro legível, para exibição na UI. */
   error: string | null
   requestPermission: (apartmentNumber: string) => Promise<NotificationPermission>
@@ -130,6 +132,12 @@ export function useNotifications(): NotificationsApi {
       if (!browserSupportsPush()) {
         setError("Seu navegador não suporta notificações push.")
         return "denied"
+      }
+      // Barra antes do `fetch` de inscrição: o servidor recusaria de qualquer
+      // forma, e a chamada só serviria para acordar o banco à toa.
+      if (!NOTIFICATIONS_ENABLED) {
+        setError("As notificações estão temporariamente desativadas.")
+        return getPermissionSnapshot()
       }
       if (!apartmentNumber.trim()) {
         setError("Preencha o número do apartamento antes de ativar as notificações.")
@@ -199,6 +207,7 @@ export function useNotifications(): NotificationsApi {
     isSubscribed,
     isSupported,
     isConfigured: publicVapidKey !== null,
+    isEnabled: NOTIFICATIONS_ENABLED,
     error,
     requestPermission,
     unsubscribe,

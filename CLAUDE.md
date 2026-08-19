@@ -86,6 +86,14 @@ prisma/
   ajustado, por até **1 hora** depois do momento previsto
   (`NOTIFICATION_GRACE_MINUTES`) — o agendador não é pontual, ver
   `docs/DEPLOY.md`.
+- **As notificações estão desligadas desde 19/08/2026**
+  (`NOTIFICATIONS_ENABLED`, em `src/lib/notifications-config.ts`). O cron
+  chamava o ciclo a cada 5 minutos e cada chamada consultava o banco; como o
+  autosuspend do Neon no plano free é fixo em 5 minutos, o compute nunca dormia,
+  a cota mensal acabava no dia 17 e o app saía do ar. Enquanto a flag estiver
+  desligada, **nenhum caminho de notificação pode tocar o banco** — é isso que
+  os testes `... com as notificações desligadas` protegem, e não o mero "não
+  enviou". Como religar está em `docs/DEPLOY.md`.
 
 Esses números vivem em `src/lib/booking-rules.ts` e
 `src/lib/notifications-config.ts`. Mudou o número, mude no arquivo — nunca
@@ -154,6 +162,7 @@ O auto-deploy da Vercel por push está **desligado** (`vercel.json` →
 | `VAPID_PRIVATE_KEY`            | Vercel (todos)          | Assinatura das notificações                |
 | `VAPID_SUBJECT`                | Vercel (opcional)       | `mailto:` exigido pelo VAPID               |
 | `CRON_SECRET`                  | Vercel + secret do repo | Protege `/api/cron/notifications`          |
+| `NEXT_PUBLIC_NOTIFICATIONS_ENABLED` | Vercel (nenhum ambiente hoje) | `"true"` liga as notificações; ausente = desligado |
 
 Sem as chaves VAPID o app funciona normalmente: as notificações apenas ficam
 indisponíveis, sem quebrar build nem runtime. Isso é proposital.

@@ -1,22 +1,30 @@
 name: Cron de notificações
 
-# REDE DE SEGURANÇA, não o agendador principal.
+# DESATIVADO EM 19/08/2026 — cota de compute do Neon.
 #
-# O plano Hobby da Vercel só permite cron uma vez por dia, o que é inútil para
-# um aviso de "faltam 15 minutos" — daí o agendador ter vindo parar aqui. Só que
-# o `schedule` do GitHub também não serve sozinho: apesar do `*/5`, este
-# repositório recebia uma execução a cada 1 a 3 horas (agosto de 2026). O GitHub
-# desprioriza `schedule` em repositórios de pouco tráfego e não há configuração
-# que resolva.
+# O que este workflow fazia: era a rede de segurança do envio de notificações,
+# não o agendador principal. O cron da Vercel no plano Hobby só dispara uma vez
+# por dia, inútil para um aviso de "faltam 15 minutos", então o agendamento veio
+# parar aqui — e como o `schedule` do GitHub também não é pontual (apesar do
+# `*/5`, este repositório recebia uma execução a cada 1 a 3 horas), a
+# pontualidade ficava por conta de um job externo no cron-job.org.
 #
-# A pontualidade vem de um agendador externo (cron-job.org) chamando o mesmo
-# endpoint a cada 5 minutos. Este workflow fica como garantia de que nada
-# congela caso aquele caia: o endpoint é idempotente e o ciclo tolera atraso
-# (NOTIFICATION_GRACE_MINUTES), então um disparo tardio entrega o que ficou para
-# trás em vez de perder o aviso. Ver docs/DEPLOY.md.
+# Por que está desligado: o plano free do Neon dá 100 CU-horas por projeto por
+# mês e mantém o autosuspend fixo em 5 minutos. Um cron de 5 em 5 minutos acorda
+# o banco exatamente no ritmo em que ele tentaria dormir — 0,25 CU ligado 24
+# horas por dia, ~5,9 CU-horas por dia, a cota do mês queimada no dia 19 e o app
+# fora do ar com erro `53000`. Mesmo espaçado em horas pelo GitHub, este
+# `schedule` sozinho manteria o banco acordado boa parte do dia.
+#
+# O `workflow_dispatch` fica de propósito: dá para testar o endpoint à mão sem
+# religar o agendamento. Com `NOTIFICATIONS_ENABLED` desligado ele responde 200
+# sem consultar o banco.
+#
+# Para religar, os quatro passos têm que acontecer juntos — ver
+# `src/lib/notifications-config.ts` e `docs/DEPLOY.md`.
 on:
-  schedule:
-    - cron: "*/5 * * * *"
+  # schedule:
+  #   - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:

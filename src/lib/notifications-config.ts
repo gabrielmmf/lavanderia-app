@@ -1,4 +1,28 @@
 /**
+ * Liga o ciclo de notificações por completo — envio, inscrição e a própria UI.
+ *
+ * Desligado por padrão, e isso é deliberado: enquanto está `false`, nenhum
+ * caminho de notificação toca o banco. Essa é a razão de ele existir.
+ *
+ * O plano free do Neon dá 100 CU-horas por projeto por mês e mantém o
+ * autosuspend fixo em 5 minutos, que não é configurável. O agendador chamava
+ * `/api/cron/notifications` a cada 5 minutos e o ciclo consultava o banco em
+ * toda chamada — ou seja, o compute era acordado exatamente no ritmo em que
+ * tentaria dormir. Resultado: 0,25 CU ligado 24 horas por dia, ~5,9 CU-horas
+ * por dia, e a cota do mês queimada no dia 19 de agosto de 2026, com o banco
+ * suspenso e o app fora do ar (erro `53000`).
+ *
+ * Com a flag desligada o banco só acorda quando um morador de fato abre o app.
+ *
+ * Para religar: defina `NEXT_PUBLIC_NOTIFICATIONS_ENABLED=true` no ambiente,
+ * faça um novo deploy (o valor é embutido no bundle em build time), descomente
+ * o `schedule` de `.github/workflows/cron-notifications.yml` e recrie o job no
+ * cron-job.org. Antes disso, confira em `docs/DEPLOY.md` quanto de cota o
+ * intervalo escolhido consome — 5 minutos não cabe no plano free.
+ */
+export const NOTIFICATIONS_ENABLED = process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED === "true"
+
+/**
  * Antecedência (em minutos) com que avisamos o usuário antes do início e do
  * término da reserva. Compartilhado entre o job de cron e a UI para que a
  * mensagem exibida e o comportamento real nunca divirjam.

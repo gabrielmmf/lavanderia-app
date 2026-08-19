@@ -27,6 +27,27 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
+/**
+ * Regressão da queda por cota do Neon (19/08/2026): gravar uma inscrição que
+ * nunca será usada acorda o compute por 5 minutos, exatamente o custo que
+ * desligar as notificações existe para evitar. A recusa precisa acontecer antes
+ * do Prisma, não depois.
+ */
+describe("POST /api/notifications/subscribe com as notificações desligadas", () => {
+  it("responde 503 sem gravar nada", async () => {
+    vi.resetModules()
+    process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "false"
+    const { POST: postDesligado } = await import("./route")
+
+    const response = await postDesligado(post(validBody))
+
+    expect(response.status).toBe(503)
+    expect(prismaMock.pushSubscription.upsert).not.toHaveBeenCalled()
+
+    process.env.NEXT_PUBLIC_NOTIFICATIONS_ENABLED = "true"
+  })
+})
+
 describe("POST /api/notifications/subscribe", () => {
   it("registra a inscrição", async () => {
     const response = await POST(post(validBody))
